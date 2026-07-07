@@ -4,7 +4,7 @@ Run a thorough code review of the `clients/python` implementation by comparing i
 
 ## NOTES-A
 
-Provide a detailed analysis, in a tabular form inside the folder `clients/python/reviews` and add files named as `code_review_{{ yyyymmdd }}_{{ latest_gitsha }}_{{ reference_gitsha }}.md`.
+Provide a detailed analysis, in a tabular form inside the folder `clients/python/reviews` and add files named as `code_review_{{ yyyymmdd }}T{{ HHMMSS }}_L_{{ latest_gitsha }}_R_{{ reference_gitsha }}.md`.
 
 Use only **first 8 characters** of the gitsha for `latest_gitsha` and `reference_gitsha`.
 
@@ -42,4 +42,10 @@ Add a summary section showing the coverage of the review and most important aspe
 ## REVIEW SUMMARY TABLE
 
 ...
+```
+
+## Example of how to prompt with this `REVIEW.md` file.
+
+```text
+with reference_gitsha="a1fc2bc0aa273dd52cac89ae51c3f84819c1604a", use the instruction from REVIEW.md
 ```
