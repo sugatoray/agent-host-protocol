@@ -194,10 +194,11 @@ For cross-client evidence and rationale on each item below, see
    7 tests in `tests/types/test_turn_state.py`. Suite: 231/231.
    → [GAPCONTEXT.md § Turn.state type](./GAPCONTEXT.md#turnstate-type)
 
-4. **`ChatToolCallConfirmedAction` subtype split** — Python uses `approved: bool`
-   instead of TS's `ChatToolCallApprovedAction | ChatToolCallDeniedAction`
-   discriminated union. `reason` (on denied) and `confirmed` (on approved) fields
-   are inaccessible until this is modeled properly.
+4. ~~**`ChatToolCallConfirmedAction` subtype split**~~ — **DONE** (2026-07-07).
+   `ChatToolCallConfirmedAction` now carries all fields from both canonical subtypes
+   (`confirmed`, `reason`, `reason_message`, `user_suggestion`, `edited_tool_input`,
+   `selected_option_id`). `ChatToolCallApprovedAction` and `ChatToolCallDeniedAction`
+   added as typed convenience models for construction. 9 new tests. Suite: 240/240.
    → [GAPCONTEXT.md § ChatToolCallConfirmedAction](./GAPCONTEXT.md#chattoollcallconfirmedaction-subtype-split)
 
 5. **`SessionMcpServerStateChangedAction` reducer** — deliberately no-ops; TS

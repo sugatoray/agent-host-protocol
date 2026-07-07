@@ -19,3 +19,7 @@ Update SPEC.md, GAPANALYSIS.md (and GAPCONTEXT.md), HANDOFF.md and add/update a 
 - "Wisdom: Best practices to adopt within the python client along-with Red/Green TDD"
 
 > NOTE: GAPANALYSIS.md provides _what?_ and GAPCONTEXT.md provides _why?_ for each gap. Once a gap is closed, update the GAPCONTEXT.md first with marking that specific GAP as CLOSED. Once it is committed, then in the second pass, update the GAPCONTEXT.md to remove the closed gap from the list of open GAPs and update the SPEC.md file accordingly with the closed GAP.
+
+## CHANGELOG
+
+Finally update CHANGELOG.md with summary briefings of the updates made.

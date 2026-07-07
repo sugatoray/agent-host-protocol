@@ -445,6 +445,17 @@ against a real pydantic install (sandbox had no network access to install
     subtype split, `SessionMcpServerStateChangedAction` reducer.
   - `AhpClient.ping()` wrapper added; structured logging (`logging.getLogger(__name__)`)
     added to reader loop (malformed messages, unhandled host requests). Suite: 214/214.
+- v14 (2026-07-07) — closed `ChatToolCallConfirmedAction` subtype split via Red/Green TDD.
+  `ChatToolCallConfirmedAction` (the `StateAction` union member) now carries all fields
+  from both canonical subtypes: `confirmed` + `edited_tool_input` (approved path) and
+  `reason` + `reason_message` + `user_suggestion` (denied path), plus shared
+  `selected_option_id`. Pydantic's `Field(discriminator="type")` on `StateAction` prevents
+  two separate classes with the same `type` literal, so a flat model is used as the union
+  member. Additionally, `ChatToolCallApprovedAction` (`approved: Literal[True]`, required
+  `confirmed: str`) and `ChatToolCallDeniedAction` (`approved: Literal[False]`, required
+  `reason: str`) added as typed convenience models for callers that construct or dispatch
+  confirmations. Both exported from `ahp.types`. 9 new tests in
+  `tests/types/test_chat_actions.py` (24 total). Suite: 240/240.
 - v13 (2026-07-07) — closed `Turn.state` type gap via Red/Green TDD.
   `Turn.state` changed from `dict[str, Any]` (defaulting to `{"type":"running"}`)
   to `Literal["complete", "cancelled", "error"]`, matching canonical

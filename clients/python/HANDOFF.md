@@ -30,6 +30,10 @@
   Suite: **231/231**. See SPEC.md v13. `Turn.state` is now
   `Literal["complete","cancelled","error"]`; in-progress turns live in
   `ChatState.active_turn` (dict), not `turns`.
+- **2026-07-07: `ChatToolCallConfirmedAction` subtype split closed.**
+  Suite: **240/240**. See SPEC.md v14. Added `confirmed`, `reason`, `reason_message`,
+  `user_suggestion`, `edited_tool_input`, `selected_option_id` fields.
+  `ChatToolCallApprovedAction` and `ChatToolCallDeniedAction` added as typed helpers.
 
 ## Repo context
 
@@ -65,9 +69,9 @@ is intentional laxity or depth choices — open when the need arises:
 
 - **`ChatState` missing fields** — `origin`, `interactivity`, `workingDirectory`
   (`types/channels-chat/state.ts:51-69`). Add when needed.
-- **`ChatToolCallConfirmedAction` subtype split** — Python has `approved: bool`
-  instead of TS's `Approved | Denied` discriminated union. Fine unless `reason`
-  (on denied) or `confirmed` fields are needed.
+- **`ChatToolCallConfirmedAction` subtype split** — **DONE** (2026-07-07).
+  `ChatToolCallConfirmedAction` now carries all subtype fields; `ChatToolCallApprovedAction`
+  and `ChatToolCallDeniedAction` added as typed construction helpers.
 - **`SessionMcpServerStateChangedAction` reducer** — deliberately no-ops. TS updates
   matching customization entries; implement when MCP tools are used.
 - **Chat reducer coverage** — 17 of 24 variants no-op. Fine — canonical TS has no
@@ -86,7 +90,7 @@ is intentional laxity or depth choices — open when the need arises:
 | `ahp.client` | `tests/client/` — 5 files + `_helpers.py` | ~30 tests | |
 | `ahp.hosts` | `tests/hosts/` — 1 file | 11 tests | |
 
-**Full suite: `uv run pytest -v` → 231 passed (2026-07-07).**
+**Full suite: `uv run pytest -v` → 240 passed (2026-07-07).**
 
 ## Gotchas — things that will bite you if you're not careful
 

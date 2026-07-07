@@ -267,11 +267,56 @@ class ChatToolCallReadyAction(AhpModel):
 
 
 class ChatToolCallConfirmedAction(AhpModel):
+    """Flat model for chat/toolCallConfirmed — used as the StateAction union member.
+    Holds fields from both the Approved and Denied canonical subtypes; check `approved`
+    to know which optional fields are populated.
+    """
+
     type: Literal["chat/toolCallConfirmed"] = "chat/toolCallConfirmed"
     turn_id: str = Field(alias="turnId")
     tool_call_id: str = Field(alias="toolCallId")
-    approved: bool  # True=approved, False=denied
+    approved: bool
+    # Approved path (approved=True): ToolCallConfirmationReason
+    confirmed: str | None = None
+    edited_tool_input: str | None = Field(default=None, alias="editedToolInput")
+    # Denied path (approved=False): ToolCallCancellationReason ('denied'|'skipped')
+    reason: str | None = None
+    user_suggestion: Any | None = Field(default=None, alias="userSuggestion")
+    reason_message: Any | None = Field(default=None, alias="reasonMessage")
+    # Common optional
+    selected_option_id: str | None = Field(default=None, alias="selectedOptionId")
     meta: dict[str, Any] | None = Field(default=None, alias="_meta")
+
+
+class ChatToolCallApprovedAction(AhpModel):
+    """Convenience model for constructing/validating approved tool-call confirmations.
+    Mirrors ChatToolCallApprovedAction in canonical types/channels-chat/actions.ts:226-236.
+    Not in StateAction — use ChatToolCallConfirmedAction for parsing incoming actions.
+    """
+
+    type: Literal["chat/toolCallConfirmed"] = "chat/toolCallConfirmed"
+    turn_id: str = Field(alias="turnId")
+    tool_call_id: str = Field(alias="toolCallId")
+    approved: Literal[True] = True
+    confirmed: str  # ToolCallConfirmationReason: 'not-needed'|'user-action'|'setting'
+    edited_tool_input: str | None = Field(default=None, alias="editedToolInput")
+    selected_option_id: str | None = Field(default=None, alias="selectedOptionId")
+
+
+class ChatToolCallDeniedAction(AhpModel):
+    """Convenience model for constructing/validating denied tool-call confirmations.
+    Mirrors ChatToolCallDeniedAction in canonical types/channels-chat/actions.ts:248-260.
+    Not in StateAction — use ChatToolCallConfirmedAction for parsing incoming actions.
+    """
+
+    type: Literal["chat/toolCallConfirmed"] = "chat/toolCallConfirmed"
+    turn_id: str = Field(alias="turnId")
+    tool_call_id: str = Field(alias="toolCallId")
+    approved: Literal[False] = False
+    reason: str  # ToolCallCancellationReason: 'denied'|'skipped'
+    user_suggestion: Any | None = Field(default=None, alias="userSuggestion")
+    reason_message: Any | None = Field(default=None, alias="reasonMessage")
+    selected_option_id: str | None = Field(default=None, alias="selectedOptionId")
 
 
 class ChatToolCallCompleteAction(AhpModel):

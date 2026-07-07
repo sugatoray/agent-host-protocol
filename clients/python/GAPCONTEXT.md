@@ -103,53 +103,6 @@ interface ChatState {
 ---
 
 
-## ChatToolCallConfirmedAction subtype split
-
-**GAPANALYSIS.md section**: `chat` → Actions
-**Priority**: medium
-**Status**: open (2026-07-07)
-
-### What is missing
-
-`ChatToolCallConfirmedAction` in `src/ahp/types/actions.py` uses `approved: bool`
-as a flat field. The canonical TS protocol defines this as two distinct action
-subtypes with different field sets, discriminated on `approved`:
-
-- `ChatToolCallApprovedAction` (`approved: true`) — carries a `confirmed` field
-- `ChatToolCallDeniedAction` (`approved: false`) — carries a `reason?: string` field
-
-### Cross-client evidence
-
-| Client     | Has the subtype split? | Location |
-|------------|------------------------|----------|
-| TypeScript | **yes** — discriminated union | `types/channels-chat/actions.ts:226–271` |
-| Go         | **yes** | `clients/go/ahptypes/state.generated.go` |
-| Rust       | **yes** — enum variants | `clients/rust/crates/ahp-types/src/state.rs` |
-| Python     | **no** — flat `approved: bool` | `src/ahp/types/actions.py` |
-
-### Why it matters
-
-1. A denied tool-call carries a `reason` string (the host's explanation). Python
-   code that wants to surface this reason to the user cannot access it — it's
-   not a field on the current model.
-2. An approved tool-call carries a `confirmed` field used for audit/logging. Same
-   problem.
-3. The flat `approved: bool` approach works for routing (approved vs. denied) but
-   loses the payload that makes the action useful to a real application.
-
-### Canonical shape
-
-```typescript
-// types/channels-chat/actions.ts:226–271 (abbreviated)
-type ChatToolCallConfirmedAction =
-  | { type: 'chat/toolCallConfirmed'; turnId: string; toolCallId: string;
-      approved: true; confirmed: ToolCallConfirmation }
-  | { type: 'chat/toolCallConfirmed'; turnId: string; toolCallId: string;
-      approved: false; reason?: string };
-```
-
----
-
 ## SessionMcpServerStateChangedAction reducer
 
 **GAPANALYSIS.md section**: `session` → Reducer
@@ -201,6 +154,54 @@ Full implementation requires modeling `ServerToolsCustomization` shape first
 Entries below were open gaps that have been resolved. Kept for historical
 context — the rationale and cross-client evidence remain valid reference
 material for understanding the protocol shape.
+
+---
+
+## ChatToolCallConfirmedAction subtype split
+
+**GAPANALYSIS.md section**: `chat` → Actions
+**Priority**: medium
+**Status**: closed (2026-07-07)
+**Closed in**: SPEC.md v14 · `tests/types/test_chat_actions.py` (24 tests) · suite 240/240
+
+### What was missing
+
+`ChatToolCallConfirmedAction` used `approved: bool` as the only discrimination point.
+The canonical TS protocol defines two distinct action subtypes (`ChatToolCallApprovedAction`,
+`ChatToolCallDeniedAction`) with non-overlapping fields: `confirmed` (approved path) and
+`reason`/`reason_message`/`user_suggestion` (denied path).
+
+### Cross-client evidence
+
+| Client     | Has the subtype split? | Location |
+|------------|------------------------|----------|
+| TypeScript | **yes** — discriminated union | `types/channels-chat/actions.ts:226–271` |
+| Go         | **yes** | `clients/go/ahptypes/state.generated.go` |
+| Rust       | **yes** — enum variants | `clients/rust/crates/ahp-types/src/state.rs` |
+| Python     | **was no** → now yes (flat + typed subtypes) | `src/ahp/types/actions.py` |
+
+### Fix applied
+
+```python
+# ChatToolCallConfirmedAction — union member, now holds all fields:
+class ChatToolCallConfirmedAction(AhpModel):
+    approved: bool
+    confirmed: str | None = None          # ToolCallConfirmationReason (approved=True)
+    edited_tool_input: str | None = None
+    reason: str | None = None             # ToolCallCancellationReason (approved=False)
+    user_suggestion: Any | None = None
+    reason_message: Any | None = None
+    selected_option_id: str | None = None
+
+# Typed convenience subtypes for construction/dispatch:
+class ChatToolCallApprovedAction(AhpModel):
+    approved: Literal[True] = True
+    confirmed: str  # required
+
+class ChatToolCallDeniedAction(AhpModel):
+    approved: Literal[False] = False
+    reason: str   # required
+```
 
 ---
 

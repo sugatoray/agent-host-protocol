@@ -6,7 +6,9 @@ from ahp.types.actions import (
     ChatPendingMessageRemovedAction,
     ChatPendingMessageSetAction,
     ChatQueuedMessagesReorderedAction,
+    ChatToolCallApprovedAction,
     ChatToolCallConfirmedAction,
+    ChatToolCallDeniedAction,
     ChatToolCallResultConfirmedAction,
 )
 
@@ -27,6 +29,99 @@ def test_tool_call_confirmed_parses_camel_case():
     raw = {"type": "chat/toolCallConfirmed", "turnId": "t1", "toolCallId": "tc1", "approved": True}
     a = ChatToolCallConfirmedAction.model_validate(raw)
     assert a.approved is True
+
+
+def test_tool_call_confirmed_approved_has_confirmed_field():
+    a = ChatToolCallConfirmedAction(
+        turn_id="t1", tool_call_id="tc1", approved=True, confirmed="user-action"
+    )
+    assert a.confirmed == "user-action"
+
+
+def test_tool_call_confirmed_denied_has_reason_field():
+    a = ChatToolCallConfirmedAction(
+        turn_id="t1", tool_call_id="tc1", approved=False, reason="denied"
+    )
+    assert a.reason == "denied"
+
+
+def test_tool_call_confirmed_denied_has_reason_message():
+    a = ChatToolCallConfirmedAction(
+        turn_id="t1", tool_call_id="tc1", approved=False, reason="denied",
+        reason_message="Not allowed in this environment",
+    )
+    assert a.reason_message == "Not allowed in this environment"
+
+
+def test_tool_call_confirmed_approved_wire_round_trip():
+    raw = {
+        "type": "chat/toolCallConfirmed",
+        "turnId": "t1",
+        "toolCallId": "tc1",
+        "approved": True,
+        "confirmed": "user-action",
+        "editedToolInput": "ls -la",
+        "selectedOptionId": "opt-1",
+    }
+    a = ChatToolCallConfirmedAction.model_validate(raw)
+    assert a.confirmed == "user-action"
+    assert a.edited_tool_input == "ls -la"
+    assert a.selected_option_id == "opt-1"
+
+
+def test_tool_call_confirmed_denied_wire_round_trip():
+    raw = {
+        "type": "chat/toolCallConfirmed",
+        "turnId": "t1",
+        "toolCallId": "tc1",
+        "approved": False,
+        "reason": "skipped",
+        "reasonMessage": "User skipped the step",
+    }
+    a = ChatToolCallConfirmedAction.model_validate(raw)
+    assert a.reason == "skipped"
+    assert a.reason_message == "User skipped the step"
+
+
+# ── ChatToolCallApprovedAction / ChatToolCallDeniedAction (convenience types) ──
+
+def test_approved_action_requires_confirmed():
+    a = ChatToolCallApprovedAction(turn_id="t1", tool_call_id="tc1", confirmed="setting")
+    assert a.approved is True
+    assert a.confirmed == "setting"
+
+
+def test_denied_action_requires_reason():
+    a = ChatToolCallDeniedAction(turn_id="t1", tool_call_id="tc1", reason="denied")
+    assert a.approved is False
+    assert a.reason == "denied"
+
+
+def test_approved_action_wire_round_trip():
+    raw = {
+        "type": "chat/toolCallConfirmed",
+        "turnId": "t1",
+        "toolCallId": "tc1",
+        "approved": True,
+        "confirmed": "not-needed",
+    }
+    a = ChatToolCallApprovedAction.model_validate(raw)
+    assert a.confirmed == "not-needed"
+    assert a.approved is True
+
+
+def test_denied_action_wire_round_trip():
+    raw = {
+        "type": "chat/toolCallConfirmed",
+        "turnId": "t1",
+        "toolCallId": "tc1",
+        "approved": False,
+        "reason": "denied",
+        "reasonMessage": "Access denied",
+    }
+    a = ChatToolCallDeniedAction.model_validate(raw)
+    assert a.reason == "denied"
+    assert a.reason_message == "Access denied"
 
 
 # ── ChatToolCallResultConfirmedAction ─────────────────────────────────────────
