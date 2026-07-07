@@ -9,6 +9,25 @@ Rust/Go/TypeScript/Kotlin clients in this repo.
 
 ### Added
 
+- `AhpClient.unsubscribe()`, plus the full session/chat/terminal lifecycle:
+  `create_session`/`dispose_session`/`list_sessions`,
+  `create_chat`/`dispose_chat`/`fetch_turns`, and
+  `create_terminal`/`dispose_terminal`. Also `completions()` and
+  `invoke_changeset_operation()`. Built via Red/Green TDD
+  (`tests/client/test_lifecycle.py`, 11 tests, real run, all passing).
+
+### Fixed
+
+- `ahp/types/__init__.py` didn't re-export the command `Params`/`Result`
+  models from `ahp.types.commands` (only the `COMMANDS` registry dict), so
+  `ResourceListResult`/`ResourceReadResult`/`ResourceStatResult`/etc. weren't
+  importable from `ahp.types` directly — broke `tests/client/test_resource_provider.py`
+  at collection. Found by running the full test suite for the first time
+  against a real pydantic install (previously only `py_compile`-checked).
+  All 94 tests pass now.
+
+### Added
+
 - `ahp.hosts.MultiHostClient`: a host_id-keyed registry over `AhpClient` —
   `.single(client)` for the common single-host case, `add_host`/`remove_host`/
   `client_for`, concurrent `initialize_all`/`close_all` (the latter tolerates

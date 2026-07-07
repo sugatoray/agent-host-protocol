@@ -239,16 +239,19 @@ against a real pydantic install (sandbox had no network access to install
    looks wrong once cross-checked against `schema/*.schema.json`.
 4. Error codes in `errors.AhpErrorCode` are explicitly marked provisional
    placeholders pending the upstream error-code table.
-5. **`ahp.client.AhpClient` and `ahp.hosts.MultiHostClient` have never been
-   executed** — only `py_compile`-checked, across all of v5 and v6
-   (initialize/subscribe/dispatch/reconcile, reconnect, authenticate/resource*
-   both directions, and MultiHostClient's fan-out). The tests are real
-   (scripted fake-host integration tests over `InMemoryTransport`, not just
-   import-time smoke tests) and the logic has been read through carefully
-   multiple times, but "read through carefully" is not the same guarantee as
-   "ran green." **Run `pytest tests/client/ tests/hosts/` before relying on
-   any of this.** This is the single most important thing to do with this
-   scaffold next.
+5. **Update 2026-07-06 (v7): actually run.** A real pydantic install became
+   available and `uv run pytest -v` was executed for the first time across
+   the whole suite: 94/94 passing, including `ahp.types`, `ahp.reducers`,
+   `ahp.client`, and `ahp.hosts` (previously `py_compile`-only). This found
+   one real bug — `ahp/types/__init__.py` didn't re-export the command
+   `Params`/`Result` models from `commands.py` (only `COMMANDS`), so
+   `tests/client/test_resource_provider.py` failed at collection
+   (`ImportError: cannot import name 'ResourceListResult'`). Fixed by adding
+   the full set of command model names to `__init__.py`'s imports/`__all__`.
+   Everything else — error codes (point 4), incomplete `StateAction` variants
+   (point 2), unverified `state.py` field sets (point 3) — is still exactly
+   as provisional as described above; passing tests confirm the code runs as
+   written, not that the field sets match the real upstream schema.
 
 ## 8. Changelog of this document
 
@@ -325,3 +328,23 @@ against a real pydantic install (sandbox had no network access to install
   - `ahp/__init__.py` now re-exports the completed public API
     (`AhpClient`, `MultiHostClient`, etc.) instead of just stating what's
     planned.
+- v7 (2026-07-06) — first real test run of the whole suite (`uv run pytest
+  -v`, real pydantic install, no more `py_compile`-only caveat): 94/94
+  passing. Fixed the one bug this surfaced — `ahp/types/__init__.py` re-exported
+  only `COMMANDS` from `commands.py`, not the individual `Params`/`Result`
+  classes, so `ResourceListResult`/`ResourceReadResult`/`ResourceStatResult`
+  (imported directly by `tests/client/test_resource_provider.py`) weren't
+  importable from `ahp.types`. Added the full set of command model names to
+  `__init__.py`'s imports and `__all__`. No other code changes; see §7a point 5.
+- v8 (2026-07-06) — closed the biggest remaining functional gap via Red/Green
+  TDD: `AhpClient.unsubscribe()` plus the full session/chat/terminal
+  lifecycle (`create_session`/`dispose_session`/`list_sessions`,
+  `create_chat`/`dispose_chat`/`fetch_turns`,
+  `create_terminal`/`dispose_terminal`, `completions`,
+  `invoke_changeset_operation`). Tests written first
+  (`tests/client/test_lifecycle.py`, 11 cases), verified red (`AttributeError:
+  'AhpClient' object has no attribute ...`), then implemented — each
+  `create_*` mirrors `subscribe()`'s snapshot registration
+  (`_channel_states`/`_last_seen_server_seq`), each `dispose_*`/`unsubscribe`
+  mirrors the same forgetting logic. Full suite: 105/105 passing. Only
+  `ping` remains unwrapped from the `COMMANDS` registry (low priority).

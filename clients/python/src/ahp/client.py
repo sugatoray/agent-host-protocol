@@ -3,11 +3,14 @@
 write-ahead reconciliation against the pure reducers in ``ahp.reducers``.
 
 Scope for this pass (see SPEC.md §6): ``initialize``, ``subscribe``,
-``dispatch_action`` + the ``action`` notification reconciliation loop,
-``reconnect`` (replay vs. resnapshot), ``close``, the client-initiated
-``authenticate``/``resource*`` commands, and the host-initiated
-``resource*`` direction (via a registered :class:`ResourceProvider`). Not yet
-implemented: ``unsubscribe`` and ``MultiHostClient`` — the next phase.
+``unsubscribe``, ``dispatch_action`` + the ``action`` notification
+reconciliation loop, ``reconnect`` (replay vs. resnapshot), ``close``, the
+client-initiated ``authenticate``/``resource*`` commands, the host-initiated
+``resource*`` direction (via a registered :class:`ResourceProvider`), and the
+session/chat/terminal lifecycle commands (``create_session``,
+``dispose_session``, ``list_sessions``, ``create_chat``, ``dispose_chat``,
+``fetch_turns``, ``create_terminal``, ``dispose_terminal``, ``completions``,
+``invoke_changeset_operation``).
 """
 
 from __future__ import annotations
@@ -29,10 +32,12 @@ from .reducers import (
 from .transport.base import Transport, TransportClosedError
 from .types import (
     URI,
+    AgentInfo,
     AhpError,
     AhpModel,
     AnnotationsState,
     AnyChannelState,
+    ChangesetOperationStatus,
     ChangesetState,
     ChatState,
     JsonRpcErrorCode,
@@ -45,10 +50,30 @@ from .types import (
 from .types.commands import (
     AuthenticateParams,
     AuthenticateResult,
+    CompletionsParams,
+    CompletionsResult,
+    CreateChatParams,
+    CreateChatResult,
+    CreateSessionParams,
+    CreateSessionResult,
+    CreateTerminalParams,
+    CreateTerminalResult,
     DispatchActionParams,
     DispatchActionResult,
+    DisposeChatParams,
+    DisposeChatResult,
+    DisposeSessionParams,
+    DisposeSessionResult,
+    DisposeTerminalParams,
+    DisposeTerminalResult,
+    FetchTurnsParams,
+    FetchTurnsResult,
     InitializeParams,
     InitializeResult,
+    InvokeChangesetOperationParams,
+    InvokeChangesetOperationResult,
+    ListSessionsParams,
+    ListSessionsResult,
     ReconnectParams,
     ReconnectResult,
     ResourceListParams,
@@ -61,6 +86,8 @@ from .types.commands import (
     ResourceWriteResult,
     SubscribeParams,
     SubscribeResult,
+    UnsubscribeParams,
+    UnsubscribeResult,
 )
 from .types.jsonrpc import (
     JsonRpcNotification,
@@ -224,6 +251,12 @@ class AhpClient:
         self._last_seen_server_seq[channel] = result.snapshot.server_seq
         return state
 
+    async def unsubscribe(self, channel: URI) -> None:
+        """Unsubscribe from ``channel`` and forget its local state."""
+        await self._send_request("unsubscribe", UnsubscribeParams(channel=channel))
+        self._channel_states.pop(channel, None)
+        self._last_seen_server_seq.pop(channel, None)
+
     async def reconnect(self, transport: Transport | None = None) -> ReconnectResult:
         """Re-establish the session after a dropped connection.
 
@@ -341,6 +374,101 @@ class AhpClient:
         """Ask the host whether/what a resource is, without reading it."""
         raw_result = await self._send_request("resourceStat", ResourceStatParams(uri=uri))
         return ResourceStatResult.model_validate(raw_result)
+
+    async def create_session(
+        self, *, agent: AgentInfo | None = None, title: str | None = None
+    ) -> SessionState:
+        """Ask the host to create a new session, subscribing to its channel."""
+        params = CreateSessionParams(agent=agent, title=title)
+        raw_result = await self._send_request("createSession", params)
+        result = CreateSessionResult.model_validate(raw_result)
+
+        state_model, _reducer = _channel_binding(result.snapshot.channel)
+        state = state_model.model_validate(result.snapshot.state)
+        self._channel_states[result.snapshot.channel] = state
+        self._last_seen_server_seq[result.snapshot.channel] = result.snapshot.server_seq
+        return state
+
+    async def dispose_session(self, session_uri: URI) -> None:
+        """Ask the host to dispose of a session and forget its local state."""
+        await self._send_request("disposeSession", DisposeSessionParams(session_uri=session_uri))
+        self._channel_states.pop(session_uri, None)
+        self._last_seen_server_seq.pop(session_uri, None)
+
+    async def list_sessions(self) -> list[URI]:
+        """Ask the host for the URIs of every currently open session."""
+        raw_result = await self._send_request("listSessions", ListSessionsParams())
+        result = ListSessionsResult.model_validate(raw_result)
+        return result.session_uris
+
+    async def create_chat(self, session_uri: URI) -> ChatState:
+        """Ask the host to create a new chat under ``session_uri``, subscribing
+        to its channel."""
+        params = CreateChatParams(session_uri=session_uri)
+        raw_result = await self._send_request("createChat", params)
+        result = CreateChatResult.model_validate(raw_result)
+
+        state_model, _reducer = _channel_binding(result.snapshot.channel)
+        state = state_model.model_validate(result.snapshot.state)
+        self._channel_states[result.snapshot.channel] = state
+        self._last_seen_server_seq[result.snapshot.channel] = result.snapshot.server_seq
+        return state
+
+    async def dispose_chat(self, chat_uri: URI) -> None:
+        """Ask the host to dispose of a chat and forget its local state."""
+        await self._send_request("disposeChat", DisposeChatParams(chat_uri=chat_uri))
+        self._channel_states.pop(chat_uri, None)
+        self._last_seen_server_seq.pop(chat_uri, None)
+
+    async def fetch_turns(
+        self, chat_uri: URI, *, before_turn_id: str | None = None, limit: int = 50
+    ) -> FetchTurnsResult:
+        """Ask the host for a page of a chat's turn history."""
+        params = FetchTurnsParams(chat_uri=chat_uri, before_turn_id=before_turn_id, limit=limit)
+        raw_result = await self._send_request("fetchTurns", params)
+        return FetchTurnsResult.model_validate(raw_result)
+
+    async def create_terminal(
+        self, session_uri: URI, *, shell: str | None = None, cwd: str | None = None
+    ) -> TerminalState:
+        """Ask the host to create a new terminal under ``session_uri``,
+        subscribing to its channel."""
+        params = CreateTerminalParams(session_uri=session_uri, shell=shell, cwd=cwd)
+        raw_result = await self._send_request("createTerminal", params)
+        result = CreateTerminalResult.model_validate(raw_result)
+
+        state_model, _reducer = _channel_binding(result.snapshot.channel)
+        state = state_model.model_validate(result.snapshot.state)
+        self._channel_states[result.snapshot.channel] = state
+        self._last_seen_server_seq[result.snapshot.channel] = result.snapshot.server_seq
+        return state
+
+    async def dispose_terminal(self, terminal_uri: URI) -> None:
+        """Ask the host to dispose of a terminal and forget its local state."""
+        await self._send_request("disposeTerminal", DisposeTerminalParams(terminal_uri=terminal_uri))
+        self._channel_states.pop(terminal_uri, None)
+        self._last_seen_server_seq.pop(terminal_uri, None)
+
+    async def completions(
+        self, session_uri: URI, *, prefix: str, kind: str | None = None
+    ) -> list[str]:
+        """Ask the host for completion suggestions for ``prefix`` within a session."""
+        params = CompletionsParams(session_uri=session_uri, prefix=prefix, kind=kind)
+        raw_result = await self._send_request("completions", params)
+        result = CompletionsResult.model_validate(raw_result)
+        return result.items
+
+    async def invoke_changeset_operation(
+        self, changeset_uri: URI, operation: str, *, args: dict[str, Any] | None = None
+    ) -> ChangesetOperationStatus:
+        """Ask the host to invoke ``operation`` (e.g. accept/reject) against a
+        changeset."""
+        params = InvokeChangesetOperationParams(
+            changeset_uri=changeset_uri, operation=operation, args=args or {}
+        )
+        raw_result = await self._send_request("invokeChangesetOperation", params)
+        result = InvokeChangesetOperationResult.model_validate(raw_result)
+        return result.status
 
     def register_resource_provider(self, provider: ResourceProvider | None) -> None:
         """Register the object that serves host-initiated ``resource*``

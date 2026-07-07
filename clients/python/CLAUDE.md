@@ -40,11 +40,10 @@ pip install -e ".[dev]"
 pytest -v
 ```
 
-Most of this codebase (`ahp.client`, `ahp.hosts`, `ahp.types`, `ahp.reducers`)
-has never actually been executed — only `py_compile`-checked — because prior
-sessions had no network access to install `pydantic`. Only `ahp.transport` has
-a confirmed real green test run. See `HANDOFF.md`'s "Test coverage" section
-for the exact breakdown before trusting anything.
+As of 2026-07-06 the full suite has a confirmed real green run (94/94,
+`uv run pytest -v`) — `ahp.client`, `ahp.hosts`, `ahp.types`, `ahp.reducers`,
+and `ahp.transport` are all actually executed now, not just `py_compile`-checked.
+See `HANDOFF.md`'s "Test coverage" section for detail.
 
 ## Conventions in this package
 

@@ -11,18 +11,20 @@
   scaffolded: `ahp.types`, `ahp.reducers`, `ahp.transport`, `ahp.client`
   (`AhpClient`), and `ahp.hosts` (`MultiHostClient`). All built via Red/Green
   TDD (tests written first, then implementation).
-- **Only `ahp.transport` has ever actually been executed.** Everything else
-  has been `py_compile`-checked (syntax valid) and cross-referenced
-  statically (method names match), but never run, because the sandbox this
-  was built in had no network access to install `pydantic`.
-- **The single most important next step**: `cd clients/python && pip install
-  -e ".[dev]" && pytest -v`. Do this before writing any more code. Fix
-  whatever it finds before extending anything.
+- **Update 2026-07-06: a real pydantic install is now available and the full
+  suite has actually been run — 94/94 passing.** This surfaced one genuine
+  bug (now fixed): `ahp/types/__init__.py` only re-exported `COMMANDS`, not
+  the individual command `Params`/`Result` models, so
+  `tests/client/test_resource_provider.py` failed at collection with
+  `ImportError: cannot import name 'ResourceListResult'`. Fixed by adding all
+  `commands.py` Params/Result classes to `ahp/types/__init__.py`'s imports
+  and `__all__`. Everything else (`types`, `reducers`, `client`, `hosts`) now
+  has confirmed real green runs, not just `py_compile`. See the updated Test
+  coverage table below.
 - Nothing here has been checked against the actual Rust/Go/TypeScript client
-  source or the JSON schema files upstream — GitHub blocked automated access
-  to subdirectory pages from the sandbox this was built in. If you have
-  browser/API access to `microsoft/agent-host-protocol`, reconciling against
-  those is probably the second most valuable thing to do.
+  source or the JSON schema files upstream. If you have browser/API access to
+  `microsoft/agent-host-protocol`, reconciling against those is probably the
+  most valuable next step.
 
 ## Repo context
 
@@ -54,22 +56,19 @@ delegating `get_state`/`dispatch_action`.
 
 ## What's NOT completed
 
-- **`unsubscribe()`** — never implemented on `AhpClient`. Should be a small
-  addition: send the `unsubscribe` command, remove the channel from
-  `_channel_states`/`_last_seen_server_seq`. Not covered by any test yet.
+- **Update 2026-07-06: `unsubscribe()` and the full session/chat/terminal
+  lifecycle are now implemented.** `AhpClient` gained `unsubscribe`,
+  `create_session`/`dispose_session`/`list_sessions`,
+  `create_chat`/`dispose_chat`/`fetch_turns`, and
+  `create_terminal`/`dispose_terminal`/`completions`/
+  `invoke_changeset_operation` — all via Red/Green TDD
+  (`tests/client/test_lifecycle.py`, 11 tests, real run, all passing).
+  `create_session`/`create_chat`/`create_terminal` register the returned
+  snapshot into `_channel_states`/`_last_seen_server_seq` the same way
+  `subscribe()` does; the `dispose_*`/`unsubscribe` methods forget local state
+  the same way. The former biggest functional gap is closed.
 - **`ping`** command — exists in `types/commands.py`'s `COMMANDS` registry but
   `AhpClient` never calls it. Low priority (mostly a liveness check).
-- **`createSession`/`disposeSession`/`listSessions`/`createChat`/`disposeChat`/
-  `createTerminal`/`disposeTerminal`/`fetchTurns`/`completions`/
-  `invokeChangesetOperation`** — all have `Params`/`Result` models already
-  defined in `types/commands.py` and are in the `COMMANDS` registry, but
-  `AhpClient` has **no methods wrapping them**. This is probably the biggest
-  gap: a real host integration needs session/chat/terminal lifecycle
-  management, and right now `AhpClient` can only `subscribe` to
-  already-existing channels, not create new sessions/chats/terminals. Adding
-  these should be mechanical — they follow the exact same
-  `_send_request(method, Params(...))` → `Result.model_validate(...)` pattern
-  as `subscribe`/`dispatch_action`. Do this next, before anything fancier.
 - **`StateAction` only has a seed set of variants** (a handful per channel
   family), not the full ~80-variant union the real protocol has. The
   extension pattern is documented at the top of `types/actions.py`. Adding
@@ -98,11 +97,13 @@ are different claims here, and the gap matters:
 
 | Layer | Tests written? | Actually executed? | Notes |
 |---|---|---|---|
-| `ahp.types` | Yes (`tests/types/test_types.py`) | **No** — `py_compile` only | Needs real pydantic install |
-| `ahp.reducers` | Yes (`tests/reducers/*.py`, 6 files) | **No** — `py_compile` only | Reducer state models are pydantic; same blocker |
+| `ahp.types` | Yes (`tests/types/test_types.py`) | **Yes — real run, 3/3 passing** (2026-07-06) | |
+| `ahp.reducers` | Yes (`tests/reducers/*.py`, 6 files) | **Yes — real run, passing** (2026-07-06) | |
 | `ahp.transport` | Yes (`tests/transport/*.py`, 3 files, 24 tests) | **Yes — real run, 24/24 passing** | Zero pydantic dependency, so a throwaway hand-rolled async test runner + minimal `pytest.raises`-only shim could actually execute it in-sandbox |
-| `ahp.client` | Yes (`tests/client/*.py`, 4 files) | **No** — `py_compile` only, plus a static AST cross-check that every `client.method()` call in the tests resolves to a real method on `AhpClient` (no typos) | Needs real pydantic |
-| `ahp.hosts` | Yes (`tests/hosts/test_multi_host_client.py`) | **No** — same as above | Needs real pydantic |
+| `ahp.client` | Yes (`tests/client/*.py`, 4 files) | **Yes — real run, passing** (2026-07-06) | Required fixing a missing export (see TL;DR) |
+| `ahp.hosts` | Yes (`tests/hosts/test_multi_host_client.py`) | **Yes — real run, 11/11 passing** (2026-07-06) | |
+
+**Full suite: `uv run pytest -v` → 94 passed (2026-07-06).**
 
 **Why pydantic couldn't be installed**: the sandbox this was built in had no
 network egress at all. Tried: `pip install pydantic` (fails, no index
@@ -220,21 +221,17 @@ just install pydantic for real and run pytest normally.
 
 ## Recommended order of work for the next session
 
-1. `cd clients/python && pip install -e ".[dev]" && pytest -v`. Fix anything
-   red. This is non-negotiable — everything below assumes a green baseline.
-2. If you have GitHub browser/API access this session didn't have, spot-check
-   `state.py` and `actions.py` field names against
-   `microsoft/agent-host-protocol`'s `schema/*.schema.json` and the
-   TypeScript client's generated types. Fix discrepancies.
-3. Add `unsubscribe()` to `AhpClient` (small, same pattern as everything
-   else) with a test.
-4. Add the missing session/chat/terminal lifecycle methods
-   (`create_session`, `dispose_session`, `list_sessions`, `create_chat`,
-   `dispose_chat`, `create_terminal`, `dispose_terminal`, `fetch_turns`,
-   `completions`, `invoke_changeset_operation`) — this is the biggest
-   functional gap and is mechanical given the existing `Params`/`Result`
-   models.
-5. Only after 1–4: consider expanding `StateAction` toward full coverage,
+1. ~~`cd clients/python && uv run pytest -v`~~ — **done 2026-07-06**, 94/94
+   green (see Test coverage table above).
+2. ~~Add `unsubscribe()` to `AhpClient`~~ / ~~Add the session/chat/terminal
+   lifecycle methods~~ — **done 2026-07-06** (`tests/client/test_lifecycle.py`,
+   11 tests, all passing). `ping` is the only `COMMANDS`-registry method
+   still unwrapped, and it's low priority.
+3. If you have GitHub browser/API access, spot-check `state.py` and
+   `actions.py` field names against `microsoft/agent-host-protocol`'s
+   `schema/*.schema.json` and the TypeScript client's generated types. Fix
+   discrepancies. This is now the biggest open item.
+4. Only after 3: consider expanding `StateAction` toward full coverage,
    revisiting the WebSocket-library and min-Python-version open questions,
    and adding structured logging to the reader loop.
 
@@ -259,6 +256,6 @@ clients/python/
     ├── types/             # 1 file
     ├── reducers/          # 6 files, one per channel family
     ├── transport/         # 3 files, 24 tests — the only ones actually run
-    ├── client/            # 4 files + shared _helpers.py
+    ├── client/            # 5 files + shared _helpers.py
     └── hosts/             # 1 file
 ```
