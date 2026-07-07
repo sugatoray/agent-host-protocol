@@ -192,6 +192,20 @@ turns out to still apply, not on a schedule.
   `channels-otlp/actions.ts`), that's also intentional. Having a Python
   `chat_reducer` or `otlp_reducer` is a structural asymmetry, not a gap to fill.
 
+### Gap-closure workflow (two-pass)
+
+Follow this whenever a gap in `GAPANALYSIS.md` is fixed:
+
+1. **Pass 1 — implement and mark closed**: fix the code (Red→Green TDD), then
+   update `GAPCONTEXT.md` to set `Status: closed (date)` on the entry. Commit.
+2. **Pass 2 — archive**: move the entry from "Open Gaps" to "Closed Gaps" in
+   `GAPCONTEXT.md`. Update `SPEC.md §8` with a changelog entry. Update
+   `GAPANALYSIS.md` to strike through or annotate the item as DONE. Update
+   `HANDOFF.md` test count and "What's NOT completed". Commit.
+
+Never skip pass 2 — stale "open" entries in `GAPCONTEXT.md` create noise for
+the next session trying to decide what to work on.
+
 ### Common patterns
 
 - **Client-side URI generation**: `f"ahp-{scheme}:/{uuid.uuid4()}"` — generate the

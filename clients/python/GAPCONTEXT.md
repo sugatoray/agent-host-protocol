@@ -6,10 +6,12 @@
 > stays open. `GAPANALYSIS.md` answers *what* is wrong and *where* in the
 > code; this file answers *why it matters* before you decide whether to act.
 >
-> **When to update**: add an entry here whenever a new gap is identified in
-> `GAPANALYSIS.md` that isn't self-evidently "just match the TS shape." If
-> the rationale is "all three other clients have it and the TS source is
-> unambiguous," say so here and cite the file locations.
+> **When to update**:
+> - **New gap**: add an entry under "Open Gaps" whenever a gap is identified
+>   that isn't self-evidently "just match the TS shape."
+> - **Gap closed (pass 1)**: mark `Status: closed (date)` in the entry.
+> - **Gap closed (pass 2)**: move the entry from "Open Gaps" to "Closed Gaps"
+>   at the bottom, and update `SPEC.md §8` with the closure.
 
 ---
 
@@ -42,76 +44,7 @@
 
 ---
 
-## TelemetryCapabilities in InitializeResult
-
-**GAPANALYSIS.md section**: `otlp`
-**Priority**: medium
-**Status**: closed (2026-07-07)
-
-### What is missing
-
-`InitializeResult.telemetry` in `src/ahp/types/commands.py` is typed as
-`dict[str, Any]`. The canonical protocol defines `TelemetryCapabilities` as a
-first-class struct with three optional URI fields (`logs`, `traces`, `metrics`),
-each pointing to an OTLP channel the host will stream notifications on. Python is
-the only client that leaves this untyped.
-
-### Cross-client evidence
-
-| Client     | Has `TelemetryCapabilities`? | Location |
-|------------|------------------------------|----------|
-| TypeScript | **yes** | `types/channels-otlp/state.ts:35–68` |
-| Go         | **yes** | `clients/go/ahptypes/state.generated.go:2922` |
-| Rust       | **yes** | `clients/rust/crates/ahp-types/src/state.rs:3551` |
-| Python     | **no** — `dict[str, Any]` | `src/ahp/types/commands.py` (`InitializeResult.telemetry`) |
-
-`InitializeResult` in the other clients:
-
-- **TypeScript** (`types/common/commands.ts:210`):
-  `telemetry?: TelemetryCapabilities`
-- **Go** (`clients/go/ahptypes/commands.generated.go:139`):
-  `Telemetry *TelemetryCapabilities \`json:"telemetry,omitempty"\``
-- **Rust** (`clients/rust/crates/ahp-types/src/commands.rs:162`):
-  `pub telemetry: Option<TelemetryCapabilities>`
-
-### Why it matters
-
-A client that wants to subscribe to OTLP telemetry needs to know *which channel
-URIs* to pass to `subscribe`. Those URIs come from `InitializeResult.telemetry`.
-Without a typed model:
-
-1. Callers must manually extract `result["telemetry"]["logs"]` etc. from a raw
-   dict, with no IDE completion, no validation, and no guard against the host
-   sending a malformed shape.
-2. The `logs` URI may be an RFC 6570 template with a `{level}` variable (e.g.
-   `ahp-otlp://logs/{level}`). A typed model makes it explicit that the field
-   is a URI *or template* — a raw `dict` hides this distinction.
-3. Any code that checks `initialize_result.telemetry.logs` will `AttributeError`
-   at runtime because `dict` has no `.logs` attribute. This is a silent runtime
-   trap rather than a type error caught at authoring time.
-
-### Canonical shape
-
-```typescript
-// types/channels-otlp/state.ts:35–68
-interface TelemetryCapabilities {
-  logs?: URI;     // URI or RFC 6570 template; may contain {level} variable
-  traces?: URI;   // URI for otlp/exportTraces notifications
-  metrics?: URI;  // URI for otlp/exportMetrics notifications
-}
-```
-
-Equivalent Python (proposed):
-
-```python
-class TelemetryCapabilities(AhpModel):
-    logs: URI | None = None
-    traces: URI | None = None
-    metrics: URI | None = None
-```
-
-`InitializeResult.telemetry` changes from `dict[str, Any] | None` →
-`TelemetryCapabilities | None`.
+## Open Gaps
 
 ---
 
@@ -161,7 +94,7 @@ protocol gaps if the Python client is ever used to drive a real host UI.
 // types/channels-chat/state.ts:51–69 (abbreviated)
 interface ChatState {
   // ... existing fields ...
-  origin?: ChatOrigin;           // 'user' | 'agent' | ...
+  origin?: ChatOrigin;               // 'user' | 'agent' | ...
   interactivity?: ChatInteractivity; // 'interactive' | 'background'
   workingDirectory?: URI;
 }
@@ -200,7 +133,7 @@ dict). Canonical TS defines `Turn.state` as a string enum with values
    `ActiveTurn` objects, not `Turn` objects. Defaulting to `"running"` implies
    a turn can be both a completed `Turn` and in-progress, which is wrong.
 3. Low impact in practice because only completed turns appear in `ChatState.turns`
-   — but a future reducer branch that checks `turn.state` will hit this.
+   — but any future reducer branch that checks `turn.state` will hit this.
 
 ### Canonical shape
 
@@ -306,3 +239,58 @@ If neither is true, the no-op is harmless.
 
 Full implementation requires modeling `ServerToolsCustomization` shape first
 (currently `dict[str, Any]` in `SessionState.customizations`).
+
+---
+
+## Closed Gaps
+
+Entries below were open gaps that have been resolved. Kept for historical
+context — the rationale and cross-client evidence remain valid reference
+material for understanding the protocol shape.
+
+---
+
+## TelemetryCapabilities in InitializeResult
+
+**GAPANALYSIS.md section**: `otlp`
+**Priority**: medium
+**Status**: closed (2026-07-07)
+**Closed in**: SPEC.md v12 · `tests/types/test_telemetry.py` (6 tests) · suite 220/220
+
+### What was missing
+
+`InitializeResult.telemetry` in `src/ahp/types/commands.py` was typed as
+`dict[str, Any]`. The canonical protocol defines `TelemetryCapabilities` as a
+first-class struct with three optional URI fields (`logs`, `traces`, `metrics`),
+each pointing to an OTLP channel the host streams notifications on. Python was
+the only client that left this untyped.
+
+### Cross-client evidence
+
+| Client     | Has `TelemetryCapabilities`? | Location |
+|------------|------------------------------|----------|
+| TypeScript | **yes** | `types/channels-otlp/state.ts:35–68` |
+| Go         | **yes** | `clients/go/ahptypes/state.generated.go:2922` |
+| Rust       | **yes** | `clients/rust/crates/ahp-types/src/state.rs:3551` |
+| Python     | **was no** → now yes | `src/ahp/types/commands.py` |
+
+### Why it mattered
+
+1. Callers had to manually extract `result["telemetry"]["logs"]` from a raw dict —
+   no IDE completion, no validation, no guard against malformed host responses.
+2. The `logs` URI may be an RFC 6570 template (`ahp-otlp://logs/{level}`); a raw
+   `dict` hid this distinction entirely.
+3. `initialize_result.telemetry.logs` would `AttributeError` at runtime.
+
+### Fix applied
+
+```python
+class TelemetryCapabilities(AhpModel):
+    logs: URI | None = None
+    traces: URI | None = None
+    metrics: URI | None = None
+
+class InitializeResult(AhpModel):
+    # ...
+    telemetry: TelemetryCapabilities | None = None  # was dict[str, Any] | None
+```

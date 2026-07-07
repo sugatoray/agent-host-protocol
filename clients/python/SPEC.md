@@ -437,3 +437,19 @@ against a real pydantic install (sandbox had no network access to install
     `tests/reducers/test_resource_watch_reducer.py` (5 tests).
   - `GAPANALYSIS.md` rewritten to reflect fully-closed status; remaining items
     are shallow laxities or depth choices, not protocol gaps.
+  - Added `GAPCONTEXT.md` — standing companion to `GAPANALYSIS.md` that records
+    *why* each remaining gap matters: cross-client evidence (TS/Go/Rust file:line),
+    what breaks without it, canonical shape. `CLAUDE.md` updated to reference it
+    as a required read before acting on any gap. Initial entries: `TelemetryCapabilities`,
+    `ChatState` missing fields, `Turn.state` type, `ChatToolCallConfirmedAction`
+    subtype split, `SessionMcpServerStateChangedAction` reducer.
+  - `AhpClient.ping()` wrapper added; structured logging (`logging.getLogger(__name__)`)
+    added to reader loop (malformed messages, unhandled host requests). Suite: 214/214.
+- v12 (2026-07-07) — closed `TelemetryCapabilities` gap via Red/Green TDD.
+  `TelemetryCapabilities(AhpModel)` added to `src/ahp/types/commands.py` with
+  `logs`, `traces`, `metrics` (all `URI | None`), matching canonical
+  `types/channels-otlp/state.ts:35-68` and the Go/Rust generated types.
+  `InitializeResult.telemetry` changed from `dict[str, Any] | None` to
+  `TelemetryCapabilities | None`. Exported from `ahp.types`. 6 new tests in
+  `tests/types/test_telemetry.py`. `GAPCONTEXT.md` entry marked closed and
+  moved to closed-gaps archive. Suite: 220/220.

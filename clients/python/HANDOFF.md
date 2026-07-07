@@ -23,9 +23,10 @@
   127/127 passing. GAPANALYSIS.md re-verified and rewritten with the narrower
   remaining gap list.
 - **2026-07-07 (this session): all five GAPANALYSIS.md priorities closed.**
-  Suite: **213/213 passing**. See SPEC.md v11 and GAPANALYSIS.md for detail.
-  What remains is shallow laxity and depth choices, not protocol gaps — see
-  "What's NOT completed" below.
+  Suite: 213/213. See SPEC.md v11 and GAPANALYSIS.md for detail.
+- **2026-07-07: `TelemetryCapabilities` closed, `ping` + logging added.**
+  Suite: **220/220**. See SPEC.md v12. `GAPCONTEXT.md` introduced as the
+  standing companion to `GAPANALYSIS.md` (why each gap matters).
 
 ## Repo context
 
@@ -59,10 +60,7 @@ swap), `close`, async context manager, `create_session`/`create_chat`/
 The mechanically-fixable gaps in `GAPANALYSIS.md` are all done. What remains
 is intentional laxity or depth choices — open when the need arises:
 
-- **`ping` wrapper** — exists in `COMMANDS` registry; `AhpClient` never calls it.
-  Add when liveness checking is needed.
-- **`TelemetryCapabilities`** — `InitializeResult.telemetry` is `dict[str, Any]`.
-  Model it when OTLP telemetry is actually consumed.
+- **`ping` wrapper** — **DONE** (2026-07-07). `AhpClient.ping()` implemented.
 - **`ChatState` missing fields** — `origin`, `interactivity`, `workingDirectory`
   (`types/channels-chat/state.ts:51-69`). Add when needed.
 - **`Turn.state` default value** — defaults to `{"type": "running"}` but TS uses a
@@ -91,7 +89,7 @@ is intentional laxity or depth choices — open when the need arises:
 | `ahp.client` | `tests/client/` — 5 files + `_helpers.py` | ~30 tests | |
 | `ahp.hosts` | `tests/hosts/` — 1 file | 11 tests | |
 
-**Full suite: `uv run pytest -v` → 213 passed (2026-07-07).**
+**Full suite: `uv run pytest -v` → 220 passed (2026-07-07).**
 
 ## Gotchas — things that will bite you if you're not careful
 
