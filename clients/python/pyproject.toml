@@ -1,0 +1,123 @@
+# [build-system]
+# requires = ["hatchling"]
+# build-backend = "hatchling.build"
+[build-system]
+requires = [
+    "setuptools>=61.0",
+    #"setuptools_scm>=7.0.0",
+    "wheel>=0.36.2",
+]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ahp" ## ahp: "agent-host-protocol"
+version = "0.1.0.dev0"
+description = "Python client for the Agent Host Protocol (AHP)"
+# readme = "README.md"
+readme = {file = "README.md", content-type = "text/markdown"}
+# requires-python = ">=3.10"
+requires-python =  ">=3.12,<3.15"
+license = { text = "MIT" }
+authors = [{ name = "Microsoft Corporation" }]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Typing :: Typed",
+]
+dependencies = [
+    "pydantic>=2.0,<3.0",
+]
+
+[project.optional-dependencies]
+websocket = [
+    "websockets>=12.0",
+]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "mypy>=1.8",
+    "ruff>=0.4",
+]
+
+[project.urls]
+Homepage = "https://github.com/microsoft/agent-host-protocol"
+Documentation = "https://microsoft.github.io/agent-host-protocol/"
+Repository = "https://github.com/microsoft/agent-host-protocol"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ahp"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+
+[tool.uv]
+#########################################################################################
+## notes:
+## To ensure uv does not download or upgrade to libraries released in the last 7 days,
+## use the "exclude-newer" setting. This acts as a "cooldown" period, preventing the
+## installation of freshly released packages.
+## source:
+## - https://stackoverflow.com/a/79874496/8474894
+## - https://simonwillison.net/2024/May/10/uv-pip-install-exclude-newer/
+##
+## Either set it globally for all uv commands or use it on a per-command basis.
+## $ uv lock --exclude-newer "7 days"
+## or
+## $ uv pip install -r requirements.in --exclude-newer "7 days"
+##
+## Allow this specific package to be newer
+# exclude-newer-package = { "some-package" = "0 days" }
+#########################################################################################
+exclude-newer = "5 days"
+
+[tool.pytest.ini_options]
+# Configuration for specific tools
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+# Configuration for specific tools
+line-length = 100
+target-version = "py312"
+select = [
+    "E",  # All errors
+    "F",  # All pyflakes checks
+    "W",  # All warnings
+    "C90",  # McCabe complexity check with a threshold of 10
+    "B",  # All flake8-bugbear checks
+    "I",  # All flake8-import-order checks
+]
+ignore = [
+    "E501",  # Line length handled by black
+    "E203",  # Whitespace before ':', handled by black
+    # "W503",  # Line break before binary operator, handled by black
+    # "B007",  # Loop control variable 'i' not used within the loop body
+    # "B008",  # Do not perform function calls in argument defaults
+    # "B009",  # Do not use mutable data structures for argument defaults
+    # "B010",  # Do not use variables in argument defaults that are defined in the function body
+    # "B011",  # Do not use *args or **kwargs in function definitions
+    # "B012",  # Do not use lambda expressions
+    # "B013",  # Do not use comprehensions in argument defaults
+    # "B014",  # Do not use nested functions
+    # "B015",  # Do not use global variables
+    # "B016",  # Do not use local variables in argument defaults
+    # "B017",  # Do not use the 'exec' function
+    # "B018",  # Do not use the 'eval' function
+    # "B019",  # Do not use the 'assert' statement
+    # "B020",  # Do not use the 'del' statement
+    # "B021",  # Do not use the 'with' statement
+    # "B022",  # Do not use the 'yield' statement
+    # "B023",  # Do not use the 'return' statement in a generator function
+    # "B024",  # Do not use the 'break' statement outside of a loop
+    # "B025",  # Do not use the 'continue' statement outside of a loop
+    # "B026",  # Do not use the 'pass' statement
+    # "B027",  # Do not use the 'raise' statement without specifying an exception
+    # "B028",  # Do not use the 'import' statement inside a function
+    # "B029",  # Do not use the 'from' import statement inside a function
+]
