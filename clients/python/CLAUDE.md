@@ -14,20 +14,24 @@ Working memory for Claude sessions picking up work in this directory
 2. **[`GAPANALYSIS.md`](./GAPANALYSIS.md)** — **read before touching
    `types/` or `reducers/`.** A field-by-field diff of this client's
    types/reducers against the canonical protocol source (repo-root
-   `types/*.ts`, `schema/*.schema.json`). Nearly every state field, action
-   variant, command shape, notification shape, and error code currently
-   disagrees with the canonical source; two channel families (`otlp`,
-   `resource-watch`) are entirely missing. This document, not `HANDOFF.md`'s
-   older "spot-check" language, is the current source of truth for what to
-   fix next and in what order.
-3. **[`SPEC.md`](./SPEC.md)** — the design plan and the full decision/changelog
+   `types/*.ts`, `schema/*.schema.json`). The current source of truth for
+   what to fix next and in what order.
+3. > **[`GAPCONTEXT.md`](./GAPCONTEXT.md)** — **⚠ read this before deciding
+   > whether a gap in `GAPANALYSIS.md` is worth fixing.** For each remaining
+   > gap, this file records *why* it matters: cross-client evidence (does
+   > TypeScript/Go/Rust have it?), what breaks or degrades without it, and
+   > the canonical shape to model. `GAPANALYSIS.md` tells you *what* is
+   > wrong; `GAPCONTEXT.md` tells you *why it's necessary*. When you see a
+   > gap in `GAPANALYSIS.md`, check here first before writing a single line
+   > of code — the context may change the priority or the approach.
+4. **[`SPEC.md`](./SPEC.md)** — the design plan and the full decision/changelog
    history (§7 open questions, §7a verification caveats, §8 phase-by-phase
    changelog). Update this as you go, the same way prior sessions did.
-4. **[`CHANGELOG.md`](./CHANGELOG.md)** — package-level changelog, Keep a
+5. **[`CHANGELOG.md`](./CHANGELOG.md)** — package-level changelog, Keep a
    Changelog format. This client releases independently on its own
    `python/vX.Y.Z` tags, matching the Rust/Go/TypeScript/Kotlin clients in
    this repo.
-5. **[`WISDOM.md`](./WISDOM.md)** — constraints, traps, ditches, and best
+6. **[`WISDOM.md`](./WISDOM.md)** — constraints, traps, ditches, and best
    practices specific to this package, plus the Red/Green TDD conventions.
    Read before writing new code, not just before debugging.
 
@@ -54,12 +58,12 @@ pip install -e ".[dev]"
 pytest -v
 ```
 
-As of 2026-07-06 the full suite has a confirmed real green run (105/105,
-`uv run pytest -v`) — `ahp.client`, `ahp.hosts`, `ahp.types`, `ahp.reducers`,
-and `ahp.transport` are all actually executed now, not just `py_compile`-checked.
-See `HANDOFF.md`'s "Test coverage" section for detail. **Green here means the
-code matches its own tests, not that it matches the protocol** — see
-`GAPANALYSIS.md`, whose tests haven't been written yet.
+As of 2026-07-07 the full suite is **214/214 passing** (`uv run pytest -v`) —
+`ahp.client`, `ahp.hosts`, `ahp.types`, `ahp.reducers`, and `ahp.transport`
+are all executed. See `HANDOFF.md`'s "Test coverage" section for detail.
+**Green here means the code matches its own tests, not that it matches the
+protocol** — see `GAPANALYSIS.md` (what's wrong) and `GAPCONTEXT.md` (why
+each remaining gap matters).
 
 ## Conventions in this package
 

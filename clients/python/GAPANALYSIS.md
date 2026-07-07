@@ -1,5 +1,9 @@
 # Gap Analysis — Python client vs. canonical protocol source
 
+> **See also [`GAPCONTEXT.md`](./GAPCONTEXT.md)** for cross-client evidence and
+> rationale on *why* the gaps below matter. `GAPANALYSIS.md` answers *what* is
+> wrong; `GAPCONTEXT.md` answers *why it's worth fixing*.
+>
 > Originally produced 2026-07-06, diffing `clients/python/src/ahp/{types,reducers}`
 > against the canonical TypeScript source at repo-root `types/` (per-channel
 > `channels-*/{state,actions,commands,notifications,reducer}.ts` + `common/*.ts`), with
@@ -170,19 +174,35 @@ FIXED, fully.
 The five-priority sequencing list from the prior revision is fully complete. What
 remains is genuinely shallow laxity or depth choices rather than protocol gaps:
 
+For cross-client evidence and rationale on each item below, see
+[`GAPCONTEXT.md`](./GAPCONTEXT.md).
+
 1. **`TelemetryCapabilities`** — `InitializeResult.telemetry` is `dict[str, Any]`.
-   Model it when OTLP telemetry is actually used.
+   All three other clients (TS/Go/Rust) model this as a typed struct; without it,
+   callers cannot access `.logs`/`.traces`/`.metrics` attributes at authoring time.
+   → [GAPCONTEXT.md § TelemetryCapabilities](./GAPCONTEXT.md#telemetrycapabilities-in-initializeresult)
+
 2. **`ChatState` missing fields** — `origin`, `interactivity`, `workingDirectory`
-   (TS `types/channels-chat/state.ts:51-69`). Add when needed.
-3. **`Turn.state` default** — currently `{"type": "running"}`; TS uses a string enum.
-   Low impact; only completed `Turn` objects appear in `ChatState.turns`.
+   (`types/channels-chat/state.ts:51-69`). Depth choice today; needed for any UI
+   that renders chat metadata.
+   → [GAPCONTEXT.md § ChatState missing fields](./GAPCONTEXT.md#chatstate-missing-fields-origin-interactivity-workingdirectory)
+
+3. **`Turn.state` default** — currently `{"type": "running"}`; TS uses a string enum
+   (`'complete'|'cancelled'|'error'`). Silent wrong-behavior risk in any code that
+   branches on `turn.state`.
+   → [GAPCONTEXT.md § Turn.state type](./GAPCONTEXT.md#turnstate-type)
+
 4. **`ChatToolCallConfirmedAction` subtype split** — Python uses `approved: bool`
-   instead of TS's `ChatToolCallApprovedAction | ChatToolCallDeniedAction` discriminated
-   union. Acceptable unless the `reason` field (on denied) or `confirmed` (on approved)
-   is needed.
-5. **`SessionMcpServerStateChangedAction` reducer** — deliberately no-ops; TS updates
-   matching customization entries. Implement when MCP server tools are used.
+   instead of TS's `ChatToolCallApprovedAction | ChatToolCallDeniedAction`
+   discriminated union. `reason` (on denied) and `confirmed` (on approved) fields
+   are inaccessible until this is modeled properly.
+   → [GAPCONTEXT.md § ChatToolCallConfirmedAction](./GAPCONTEXT.md#chattoollcallconfirmedaction-subtype-split)
+
+5. **`SessionMcpServerStateChangedAction` reducer** — deliberately no-ops; TS
+   updates matching customization entries. Implement when MCP server tools are used.
+   → [GAPCONTEXT.md § SessionMcpServerStateChangedAction](./GAPCONTEXT.md#sessionmcpserverstatechangedaction-reducer)
+
 6. **Chat reducer coverage** — 17 of 24 variants still no-op. Fine, since canonical
    TS has no chat reducer at all.
-7. **`ping` method** — `AhpClient` doesn't have a convenience `ping()` wrapper.
-   One-liner addition when needed.
+
+7. ~~**`ping` method**~~ — **DONE** (2026-07-07). `AhpClient.ping()` implemented.
