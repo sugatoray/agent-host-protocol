@@ -177,9 +177,9 @@ remains is genuinely shallow laxity or depth choices rather than protocol gaps:
 For cross-client evidence and rationale on each item below, see
 [`GAPCONTEXT.md`](./GAPCONTEXT.md).
 
-1. **`TelemetryCapabilities`** — `InitializeResult.telemetry` is `dict[str, Any]`.
-   All three other clients (TS/Go/Rust) model this as a typed struct; without it,
-   callers cannot access `.logs`/`.traces`/`.metrics` attributes at authoring time.
+1. ~~**`TelemetryCapabilities`**~~ — **DONE** (2026-07-07). `TelemetryCapabilities`
+   model added; `InitializeResult.telemetry` is now `TelemetryCapabilities | None`.
+   6 tests in `tests/types/test_telemetry.py`. 220/220 passing.
    → [GAPCONTEXT.md § TelemetryCapabilities](./GAPCONTEXT.md#telemetrycapabilities-in-initializeresult)
 
 2. **`ChatState` missing fields** — `origin`, `interactivity`, `workingDirectory`

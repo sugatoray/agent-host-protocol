@@ -93,6 +93,7 @@ from .actions import (
 from .commands import (
     COMMANDS,
     AuthenticateParams,
+    TelemetryCapabilities,
     AuthenticateResult,
     BaseParams,
     CompletionsParams,
@@ -402,6 +403,7 @@ __all__ = [
     "ResourceWriteResult",
     "SubscribeParams",
     "SubscribeResult",
+    "TelemetryCapabilities",
     "UnsubscribeParams",
     "UnsubscribeResult",
 ]

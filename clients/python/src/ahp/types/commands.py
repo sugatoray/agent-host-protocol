@@ -56,6 +56,20 @@ class InitializeParams(BaseParams):
     capabilities: ClientCapabilities | None = None
 
 
+class TelemetryCapabilities(AhpModel):
+    """OTLP channel URIs advertised by the host in InitializeResult.
+
+    Canonical source: types/channels-otlp/state.ts:35-68
+    All fields are optional; a missing field means the host does not emit
+    that telemetry signal. The ``logs`` URI may be an RFC 6570 template
+    containing a ``{level}`` variable for severity filtering.
+    """
+
+    logs: URI | None = None
+    traces: URI | None = None
+    metrics: URI | None = None
+
+
 class InitializeResult(AhpModel):
     protocol_version: ProtocolVersion = Field(alias="protocolVersion")
     server_seq: ServerSeq = Field(alias="serverSeq")
@@ -64,7 +78,7 @@ class InitializeResult(AhpModel):
     completion_trigger_characters: list[str] | None = Field(
         default=None, alias="completionTriggerCharacters"
     )
-    telemetry: dict[str, Any] | None = None
+    telemetry: TelemetryCapabilities | None = None
 
 
 # ---------------------------------------------------------------------------

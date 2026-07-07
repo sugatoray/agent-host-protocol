@@ -46,7 +46,7 @@
 
 **GAPANALYSIS.md section**: `otlp`
 **Priority**: medium
-**Status**: open (2026-07-07)
+**Status**: closed (2026-07-07)
 
 ### What is missing
 
