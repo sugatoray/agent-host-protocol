@@ -1,5 +1,7 @@
 # Check with prompt
 
+Register /ctdw as a custom command. It is defined below.
+
 ## COMMAND
 
 /ctdw: add a custom command for running the following prompt.

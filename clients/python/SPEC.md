@@ -264,6 +264,9 @@ against a real pydantic install (sandbox had no network access to install
    suggested fix order. Treat points 2-4 above as historical context for
    *why* the gap exists, not as the current todo list — `GAPANALYSIS.md` is
    the current todo list.
+7. **Update 2026-07-07 (v10): most of `GAPANALYSIS.md`'s todo list is now
+   done.** See the v10 changelog entry below and `GAPANALYSIS.md` itself for
+   what's left — it's a short, mechanical list now, not a rewrite.
 
 ## 8. Changelog of this document
 
@@ -372,3 +375,19 @@ against a real pydantic install (sandbox had no network access to install
   fix order (errors → common → root/session → chat/terminal →
   changeset/annotations → new otlp/resource-watch channels), each step
   still via Red/Green TDD.
+- v10 (2026-07-07) — the reconciliation v9/`GAPANALYSIS.md` called for
+  largely happened: commit `8fceda9` rewrote most of `ahp/types/`
+  (`actions.py`, `commands.py`, `common.py`, `errors.py`, `notifications.py`,
+  `state.py`) and all of `ahp/reducers/`, plus every test file, against
+  canonical `types/*.ts`. `AhpErrorCode`, common state primitives, and the
+  large majority of state/action field names now match canonical TS;
+  invented fields/variants from the original scaffold (`HostCapabilities`,
+  `RootSessionAdded/RemovedAction`, `terminal/output`, `annotations/added`,
+  etc.) are gone. Full suite: 127/127 passing (up from 105). `GAPANALYSIS.md`
+  has been re-verified against the current code and rewritten — it no
+  longer describes a systemic gap, just a shorter list of remaining
+  command-shape, notification-field, and reducer-completion items (see its
+  "What this means for next-session sequencing" section). Added
+  `WISDOM.md`, a standing reference for this package's constraints, traps,
+  ditches, and TDD conventions, distinct from `GAPANALYSIS.md`'s
+  point-in-time diff and `HANDOFF.md`'s narrative handoff.

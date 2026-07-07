@@ -27,6 +27,9 @@ Working memory for Claude sessions picking up work in this directory
    Changelog format. This client releases independently on its own
    `python/vX.Y.Z` tags, matching the Rust/Go/TypeScript/Kotlin clients in
    this repo.
+5. **[`WISDOM.md`](./WISDOM.md)** — constraints, traps, ditches, and best
+   practices specific to this package, plus the Red/Green TDD conventions.
+   Read before writing new code, not just before debugging.
 
 ## The one thing to do before anything else
 

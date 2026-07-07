@@ -34,6 +34,16 @@
   `GAPANALYSIS.md` is the itemized, file:line-cited diff; treat it as
   superseding the "spot-check state.py/actions.py" framing below and in
   `SPEC.md` §7a — this is a full reconciliation, not a patch.
+- **Update 2026-07-07: that reconciliation happened.** Commit `8fceda9`
+  rewrote most of `ahp/types/` and all of `ahp/reducers/` (plus every test
+  file) against canonical `types/*.ts`. Error codes, common state
+  primitives, and most state/action field names now match canonical TS;
+  `GAPANALYSIS.md` has been re-verified and rewritten to reflect the
+  (narrower) gap that remains — see it for the current per-channel status
+  and the recommended fix order. Full suite: **127/127 passing**
+  (`uv run pytest -v`, 2026-07-07), up from 105. A new
+  [`WISDOM.md`](./WISDOM.md) now also captures this package's constraints,
+  traps, ditches, and TDD conventions in one place.
 
 ## Repo context
 
@@ -120,7 +130,9 @@ are different claims here, and the gap matters:
 | `ahp.client` | Yes (`tests/client/*.py`, 4 files) | **Yes — real run, passing** (2026-07-06) | Required fixing a missing export (see TL;DR) |
 | `ahp.hosts` | Yes (`tests/hosts/test_multi_host_client.py`) | **Yes — real run, 11/11 passing** (2026-07-06) | |
 
-**Full suite: `uv run pytest -v` → 94 passed (2026-07-06).**
+**Full suite: `uv run pytest -v` → 127 passed (2026-07-07, after the `8fceda9`
+reducer/type reconciliation — was 94 on 2026-07-06, 105 after the lifecycle-methods
+pass).**
 
 **Why pydantic couldn't be installed**: the sandbox this was built in had no
 network egress at all. Tried: `pip install pydantic` (fails, no index
@@ -248,19 +260,19 @@ just install pydantic for real and run pytest normally.
    `actions.py` field names against `microsoft/agent-host-protocol`'s
    `schema/*.schema.json` and the TypeScript client's generated types~~ —
    **done 2026-07-06**: full field-by-field diff against canonical
-   `types/*.ts` completed and written up in
-   [`GAPANALYSIS.md`](./GAPANALYSIS.md). Result: this is not a small
-   fix-up — reconcile `ahp/types/` and `ahp/reducers/` channel-by-channel
-   against `GAPANALYSIS.md`'s findings, via Red/Green TDD as usual,
-   following the priority order at the bottom of that document
-   (`common/errors.ts` first, then `common/` commands/notifications/state
-   primitives, then `root`/`session`, then `chat`/`terminal`, then
-   `changeset`/`annotations`, then adding `otlp`/`resource-watch` from
-   scratch). This is now the biggest open item — bigger than previously
-   understood.
-4. Only after 3 is substantially underway: revisit the WebSocket-library and
-   min-Python-version open questions, and add structured logging to the
-   reader loop.
+   `types/*.ts` written up in [`GAPANALYSIS.md`](./GAPANALYSIS.md).
+   ~~Reconcile `ahp/types/` and `ahp/reducers/` against those findings~~ —
+   **the bulk of this done 2026-07-07** (commit `8fceda9`). `GAPANALYSIS.md`
+   has been re-verified and rewritten — read its "What this means for
+   next-session sequencing" section for the specific, narrower list of
+   what's still wrong (mostly `create*`/`fetchTurns`/`listSessions` command
+   shapes, a handful of notification field gaps, and several reducer
+   branches that still no-op).
+4. Work through `GAPANALYSIS.md`'s remaining per-channel gaps (notification
+   field shapes → `create*` command shapes → reducer completion → action
+   field-shape fixes → `resource-watch` from scratch), each via Red/Green
+   TDD. Then revisit the WebSocket-library and min-Python-version open
+   questions, and add structured logging to the reader loop.
 
 ## File map
 
@@ -268,6 +280,7 @@ just install pydantic for real and run pytest normally.
 clients/python/
 ├── SPEC.md          # design plan + decision log + phase-by-phase changelog (§8)
 ├── GAPANALYSIS.md    # field-by-field diff vs. canonical types/*.ts — read before touching types/reducers
+├── WISDOM.md          # constraints/traps/ditches/best-practices for this package
 ├── CHANGELOG.md      # package-level changelog (Keep a Changelog format)
 ├── HANDOFF.md          # this file
 ├── CLAUDE.md            # working-memory pointer for Claude Code sessions
