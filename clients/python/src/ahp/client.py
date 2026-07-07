@@ -7,8 +7,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import uuid
 from typing import Any, Callable, Protocol, runtime_checkable
+
+_log = logging.getLogger(__name__)
 
 from pydantic import TypeAdapter
 
@@ -61,6 +64,7 @@ from .types.commands import (
     InvokeChangesetOperationResult,
     ListSessionsParams,
     ListSessionsResult,
+    PingParams,
     ReconnectParams,
     ReconnectReplayResult,
     ReconnectSnapshotResult,
@@ -317,6 +321,10 @@ class AhpClient:
         """Return last known state for ``channel``, or ``None`` if not subscribed."""
         return self._channel_states.get(channel)
 
+    async def ping(self, *, channel: URI = _ROOT_CHANNEL) -> None:
+        """Send a ping to the host (liveness check)."""
+        await self._send_request("ping", PingParams(channel=channel))
+
     async def authenticate(self, resource: str, token: str) -> None:
         """Authenticate with the host for ``resource`` using ``token``."""
         params = AuthenticateParams(resource=resource, token=token)
@@ -352,22 +360,24 @@ class AhpClient:
 
     async def create_session(
         self,
-        channel: URI,
         *,
         provider: str | None = None,
         working_directory: str | None = None,
         config: dict[str, Any] | None = None,
     ) -> URI:
-        """Ask the host to create a new session; returns the session channel URI."""
+        """Ask the host to create a new session; returns the client-chosen session URI.
+
+        The session URI is generated client-side (per canonical protocol); result is null.
+        """
+        session_uri = f"ahp-session:/{uuid.uuid4()}"
         params = CreateSessionParams(
-            channel=channel,
+            channel=session_uri,
             provider=provider,
             working_directory=working_directory,
             config=config,
         )
-        raw_result = await self._send_request("createSession", params)
-        result = CreateSessionResult.model_validate(raw_result)
-        return result.session
+        await self._send_request("createSession", params)
+        return session_uri
 
     async def dispose_session(self, session_channel: URI) -> None:
         """Ask the host to dispose of a session and forget its local state."""
@@ -382,12 +392,26 @@ class AhpClient:
         raw_result = await self._send_request("listSessions", ListSessionsParams())
         return ListSessionsResult.model_validate(raw_result)
 
-    async def create_chat(self, session_channel: URI, *, title: str | None = None) -> URI:
-        """Ask the host to create a new chat; returns the chat channel URI."""
-        params = CreateChatParams(channel=session_channel, title=title)
-        raw_result = await self._send_request("createChat", params)
-        result = CreateChatResult.model_validate(raw_result)
-        return result.chat
+    async def create_chat(
+        self,
+        session_channel: URI,
+        *,
+        initial_message: dict[str, Any] | None = None,
+        source: dict[str, Any] | None = None,
+    ) -> URI:
+        """Ask the host to create a new chat; returns the client-chosen chat URI.
+
+        The chat URI is generated client-side (per canonical protocol); result is null.
+        """
+        chat_uri = f"ahp-chat:/{uuid.uuid4()}"
+        params = CreateChatParams(
+            channel=session_channel,
+            chat=chat_uri,
+            initial_message=initial_message,
+            source=source,
+        )
+        await self._send_request("createChat", params)
+        return chat_uri
 
     async def dispose_chat(self, chat_channel: URI) -> None:
         """Ask the host to dispose of a chat and forget its local state."""
@@ -397,28 +421,35 @@ class AhpClient:
 
     async def fetch_turns(
         self, chat_channel: URI, *, cursor: str | None = None
-    ) -> FetchTurnsResult:
-        """Ask the host for a page of a chat's turn history."""
+    ) -> None:
+        """Ask the host to (re)deliver a page of a chat's turn history.
+
+        Per canonical protocol, fetchTurns result is empty — turns arrive via the
+        ``chat/turnsLoaded`` action on the subscribed chat channel.
+        """
         params = FetchTurnsParams(channel=chat_channel, cursor=cursor)
-        raw_result = await self._send_request("fetchTurns", params)
-        return FetchTurnsResult.model_validate(raw_result)
+        await self._send_request("fetchTurns", params)
 
     async def create_terminal(
         self,
-        session_channel: URI,
+        claim: dict[str, Any],
         *,
-        shell: str | None = None,
+        name: str | None = None,
         cwd: str | None = None,
         cols: int | None = None,
         rows: int | None = None,
     ) -> URI:
-        """Ask the host to create a new terminal; returns the terminal channel URI."""
+        """Ask the host to create a new terminal; returns the client-chosen terminal URI.
+
+        The terminal URI is generated client-side (per canonical protocol); result is null.
+        ``claim`` identifies the initial owner of the terminal.
+        """
+        terminal_uri = f"ahp-terminal:/{uuid.uuid4()}"
         params = CreateTerminalParams(
-            channel=session_channel, shell=shell, cwd=cwd, cols=cols, rows=rows
+            channel=terminal_uri, claim=claim, name=name, cwd=cwd, cols=cols, rows=rows
         )
-        raw_result = await self._send_request("createTerminal", params)
-        result = CreateTerminalResult.model_validate(raw_result)
-        return result.terminal
+        await self._send_request("createTerminal", params)
+        return terminal_uri
 
     async def dispose_terminal(self, terminal_channel: URI) -> None:
         """Ask the host to dispose of a terminal and forget its local state."""
@@ -437,15 +468,18 @@ class AhpClient:
         return CompletionsResult.model_validate(raw_result)
 
     async def invoke_changeset_operation(
-        self, changeset_channel: URI, operation: str, *, args: dict[str, Any] | None = None
-    ) -> str:
-        """Invoke ``operation`` against a changeset; returns the operation status."""
+        self,
+        changeset_channel: URI,
+        operation_id: str,
+        *,
+        target: dict[str, Any] | None = None,
+    ) -> InvokeChangesetOperationResult:
+        """Invoke a named operation against a changeset."""
         params = InvokeChangesetOperationParams(
-            channel=changeset_channel, operation=operation, args=args or {}
+            channel=changeset_channel, operation_id=operation_id, target=target
         )
         raw_result = await self._send_request("invokeChangesetOperation", params)
-        result = InvokeChangesetOperationResult.model_validate(raw_result)
-        return result.status
+        return InvokeChangesetOperationResult.model_validate(raw_result)
 
     def register_resource_provider(self, provider: ResourceProvider | None) -> None:
         """Register (or clear) the handler for host-initiated ``resource*`` calls."""
@@ -504,6 +538,7 @@ class AhpClient:
                     parsed = json.loads(raw)
                     message = parse_protocol_message(parsed)
                 except Exception:
+                    _log.warning("ahp: malformed message from host, skipping: %r", raw, exc_info=True)
                     continue
 
                 if isinstance(message, JsonRpcResponseSuccess):
@@ -564,11 +599,13 @@ class AhpClient:
         try:
             result = await self._dispatch_host_request(message.method, message.params or {})
         except AhpClientError as exc:
+            _log.warning("ahp: host request %r not handled: %s", message.method, exc)
             await self._send_host_error_response(
                 message.id, code=JsonRpcErrorCode.METHOD_NOT_FOUND, message=str(exc)
             )
             return
         except Exception as exc:  # noqa: BLE001
+            _log.error("ahp: error handling host request %r", message.method, exc_info=True)
             await self._send_host_error_response(
                 message.id, code=JsonRpcErrorCode.INTERNAL_ERROR, message=str(exc)
             )

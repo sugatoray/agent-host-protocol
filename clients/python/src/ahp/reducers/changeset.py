@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from ahp.types import (
     ChangesetClearedAction,
+    ChangesetContentChangedAction,
     ChangesetFileRemovedAction,
     ChangesetFileSetAction,
     ChangesetOperationsChangedAction,
@@ -25,8 +26,18 @@ def changeset_reducer(state: ChangesetState, action: StateAction) -> ChangesetSt
         return state.model_copy(update={"files": [*existing, action.file]})
 
     if isinstance(action, ChangesetFileRemovedAction):
-        remaining = [f for f in state.files if f.get("id") != action.id]
+        remaining = [f for f in state.files if f.get("id") != action.file_id]
         return state.model_copy(update={"files": remaining})
+
+    if isinstance(action, ChangesetContentChangedAction):
+        update: dict = {"files": action.files}
+        if action.operations is not None:
+            update["operations"] = action.operations
+        if action.error is not None:
+            update["error"] = action.error
+        else:
+            update["error"] = None  # clear stale error
+        return state.model_copy(update=update)
 
     if isinstance(action, ChangesetOperationsChangedAction):
         return state.model_copy(update={"operations": action.operations})

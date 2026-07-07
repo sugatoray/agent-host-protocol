@@ -391,3 +391,49 @@ against a real pydantic install (sandbox had no network access to install
   `WISDOM.md`, a standing reference for this package's constraints, traps,
   ditches, and TDD conventions, distinct from `GAPANALYSIS.md`'s
   point-in-time diff and `HANDOFF.md`'s narrative handoff.
+- v11 (2026-07-07) — closed all five priorities from `GAPANALYSIS.md`'s
+  prior sequencing list via Red/Green TDD. Full suite: 213/213 passing
+  (up from 127). Changes by priority:
+  - **Notification field shapes** (P1): `auth/required` — `{channel, resource,
+    reason?}`; `root/sessionRemoved` — `{channel, session}`; `root/sessionSummaryChanged`
+    — `{channel, session, changes}`; `root/progress` — `{channel, progressToken,
+    progress, total?, message?}`, registry key fixed to `"root/progress"`; all three
+    `otlp/export*` — `{channel, payload}` wrapper (no longer flattened). New test file:
+    `tests/types/test_notifications.py` (14 tests).
+  - **`create*` command shapes** (P2): `CreateSession/Chat/TerminalResult` now empty
+    (match TS `result: null`); `CreateChatParams` gains required `chat` URI;
+    `CreateTerminalParams` gains required `claim`; `FetchTurnsResult` now empty (turns
+    arrive via `chat/turnsLoaded`); `ListSessionsParams` gains `limit?`/`cursor?`,
+    `ListSessionsResult` uses `{items, nextCursor?}`; `ResolveSessionConfigParams` gains
+    `provider?`/`workingDirectory?`, result is `{schema, values}`; added
+    `SessionConfigCompletionsParams/Result` and `CreateResourceWatchParams/Result`;
+    `InvokeChangesetOperationParams/Result` rewritten to `{channel, operationId, target?}`
+    / `{message?, followUp?}`. `AhpClient` updated accordingly — `create_session`,
+    `create_chat`, `create_terminal` now generate URIs client-side via `uuid.uuid4()`.
+    New test file: `tests/types/test_commands.py` (31 tests); `tests/client/test_lifecycle.py`
+    updated (6 tests).
+  - **Reducer completion** (P3): session reducer — added `isRead`/`isArchived` bitflag
+    ops (`1<<5`/`1<<6`), `customizationUpdated` (upsert by id), `customizationRemoved`
+    (removes from top-level and nested children); fixed `chatRemoved` to filter by
+    `resource` (not `uri`) and clear `default_chat`. Terminal reducer — rewrote
+    `TerminalData` handler to use `command`/`unclassified` content part types; added
+    `TerminalCommandExecuted` (appends new `command` part) and `TerminalCommandFinished`
+    (marks `isComplete`, sets `exitCode`/`durationMs`). Changeset reducer — fixed
+    `fileRemoved` to use `file_id`; added `contentChanged` branch (full replacement of
+    `files`/`operations`/`error`).
+  - **Action field-shape fixes** (P4): `ChangesetFileRemovedAction.file_id = Field(alias="fileId")`
+    (was `id`); `ChangesetContentChangedAction` rewritten to `{files, operations?, error?}`;
+    `ResourceWatchChangedAction.changes` → `list[Any]` (was `dict`); chat actions —
+    `ChatToolCallConfirmedAction`/`ChatToolCallResultConfirmedAction`: `outcome:str` →
+    `approved:bool`; `ChatPendingMessageSetAction`: added `kind:str`, `id:str`;
+    `ChatPendingMessageRemovedAction`: added `kind:str`; `ChatQueuedMessagesReorderedAction`:
+    `ids` → `order`; `ChatInputAnswerChangedAction`: added `question_id`, made `answer`
+    optional; `ChatInputCompletedAction`: added `response` (required), `answers?`.
+    New test file: `tests/types/test_chat_actions.py` (15 tests).
+  - **`resource-watch`** (P5): `ResourceWatchState{root, recursive, excludes?, includes?}`
+    added to `state.py` and `AnyChannelState` union; `reducers/resource_watch.py` added
+    (trivial pass-through, matching canonical TS which has no state mutations post-subscribe);
+    `CreateResourceWatchParams/Result` added (see P2 above). New test file:
+    `tests/reducers/test_resource_watch_reducer.py` (5 tests).
+  - `GAPANALYSIS.md` rewritten to reflect fully-closed status; remaining items
+    are shallow laxities or depth choices, not protocol gaps.

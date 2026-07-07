@@ -182,6 +182,24 @@ class AnnotationsState(AhpModel):
 
 
 # ---------------------------------------------------------------------------
+# Resource-watch channel — types/channels-resource-watch/state.ts
+# ---------------------------------------------------------------------------
+
+
+class ResourceWatchState(AhpModel):
+    """State for an ``ahp-resource-watch:`` channel.
+
+    Watches are stateless: the reducer never mutates this.
+    The state carries only the descriptor of what is being watched.
+    """
+
+    root: URI
+    recursive: bool
+    excludes: dict[str, Any] | None = None  # {items: list[str]}
+    includes: dict[str, Any] | None = None  # {items: list[str]}
+
+
+# ---------------------------------------------------------------------------
 # Aggregate union + versioned wrapper
 # ---------------------------------------------------------------------------
 
@@ -192,6 +210,7 @@ AnyChannelState = (
     | TerminalState
     | ChangesetState
     | AnnotationsState
+    | ResourceWatchState
 )
 
 

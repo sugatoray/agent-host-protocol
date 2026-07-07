@@ -270,7 +270,7 @@ class ChatToolCallConfirmedAction(AhpModel):
     type: Literal["chat/toolCallConfirmed"] = "chat/toolCallConfirmed"
     turn_id: str = Field(alias="turnId")
     tool_call_id: str = Field(alias="toolCallId")
-    outcome: str  # 'allow' | 'deny' | 'always-allow'
+    approved: bool  # True=approved, False=denied
     meta: dict[str, Any] | None = Field(default=None, alias="_meta")
 
 
@@ -285,7 +285,7 @@ class ChatToolCallResultConfirmedAction(AhpModel):
     type: Literal["chat/toolCallResultConfirmed"] = "chat/toolCallResultConfirmed"
     turn_id: str = Field(alias="turnId")
     tool_call_id: str = Field(alias="toolCallId")
-    outcome: str
+    approved: bool
 
 
 class ChatToolCallContentChangedAction(AhpModel):
@@ -342,17 +342,20 @@ class ChatTurnsLoadedAction(AhpModel):
 
 class ChatPendingMessageSetAction(AhpModel):
     type: Literal["chat/pendingMessageSet"] = "chat/pendingMessageSet"
+    kind: str  # PendingMessageKind: 'steering' | 'queued'
+    id: str
     message: dict[str, Any]
 
 
 class ChatPendingMessageRemovedAction(AhpModel):
     type: Literal["chat/pendingMessageRemoved"] = "chat/pendingMessageRemoved"
+    kind: str  # PendingMessageKind
     id: str
 
 
 class ChatQueuedMessagesReorderedAction(AhpModel):
     type: Literal["chat/queuedMessagesReordered"] = "chat/queuedMessagesReordered"
-    ids: list[str]
+    order: list[str]  # canonical field name (was "ids")
 
 
 class ChatDraftChangedAction(AhpModel):
@@ -368,12 +371,15 @@ class ChatInputRequestedAction(AhpModel):
 class ChatInputAnswerChangedAction(AhpModel):
     type: Literal["chat/inputAnswerChanged"] = "chat/inputAnswerChanged"
     request_id: str = Field(alias="requestId")
-    answer: dict[str, Any]
+    question_id: str = Field(alias="questionId")
+    answer: dict[str, Any] | None = None
 
 
 class ChatInputCompletedAction(AhpModel):
     type: Literal["chat/inputCompleted"] = "chat/inputCompleted"
     request_id: str = Field(alias="requestId")
+    response: str  # ChatInputResponseKind: 'accepted' | 'declined' | 'cancelled'
+    answers: dict[str, Any] | None = None
 
 
 ChatAction = Annotated[
@@ -508,13 +514,14 @@ class ChangesetFileSetAction(AhpModel):
 
 class ChangesetFileRemovedAction(AhpModel):
     type: Literal["changeset/fileRemoved"] = "changeset/fileRemoved"
-    id: str
+    file_id: str = Field(alias="fileId")  # canonical field name
 
 
 class ChangesetContentChangedAction(AhpModel):
     type: Literal["changeset/contentChanged"] = "changeset/contentChanged"
-    id: str
-    edit: dict[str, Any]  # FileEdit
+    files: list[Any]  # full replacement file list
+    operations: list[Any] | None = None  # full replacement when present
+    error: dict[str, Any] | None = None  # ErrorInfo
 
 
 class ChangesetOperationsChangedAction(AhpModel):
@@ -596,7 +603,7 @@ AnnotationsAction = Annotated[
 
 class ResourceWatchChangedAction(AhpModel):
     type: Literal["resourceWatch/changed"] = "resourceWatch/changed"
-    changes: dict[str, Any]  # {items: ResourceChange[]}
+    changes: list[Any]  # list[ResourceChange]
 
 
 ResourceWatchAction = Annotated[

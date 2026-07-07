@@ -11,11 +11,15 @@ from ahp.types import (
     SessionChatRemovedAction,
     SessionConfigChangedAction,
     SessionCreationFailedAction,
+    SessionCustomizationRemovedAction,
     SessionCustomizationsChangedAction,
     SessionCustomizationToggledAction,
+    SessionCustomizationUpdatedAction,
     SessionDefaultChatChangedAction,
     SessionInputNeededRemovedAction,
     SessionInputNeededSetAction,
+    SessionIsArchivedChangedAction,
+    SessionIsReadChangedAction,
     SessionMcpServerStateChangedAction,
     SessionMetaChangedAction,
     SessionReadyAction,
@@ -24,6 +28,14 @@ from ahp.types import (
     SessionTitleChangedAction,
     StateAction,
 )
+
+# SessionStatus bit flags (from types/channels-session/state.ts)
+_IS_READ = 1 << 5      # 32
+_IS_ARCHIVED = 1 << 6  # 64
+
+
+def _with_status_flag(status: int, flag: int, value: bool) -> int:
+    return (status | flag) if value else (status & ~flag)
 
 
 def session_reducer(state: SessionState, action: StateAction) -> SessionState:
@@ -45,9 +57,21 @@ def session_reducer(state: SessionState, action: StateAction) -> SessionState:
     if isinstance(action, SessionChatAddedAction):
         return state.model_copy(update={"chats": [*state.chats, action.summary]})
 
+    if isinstance(action, SessionIsReadChangedAction):
+        return state.model_copy(
+            update={"status": _with_status_flag(state.status, _IS_READ, action.is_read)}
+        )
+
+    if isinstance(action, SessionIsArchivedChangedAction):
+        return state.model_copy(
+            update={"status": _with_status_flag(state.status, _IS_ARCHIVED, action.is_archived)}
+        )
+
     if isinstance(action, SessionChatRemovedAction):
-        remaining = [c for c in state.chats if c.get("uri") != action.chat]
-        return state.model_copy(update={"chats": remaining})
+        # identity field is "resource", not "uri" (canonical types/channels-chat/state.ts)
+        remaining = [c for c in state.chats if c.get("resource") != action.chat]
+        default_chat = state.default_chat if state.default_chat != action.chat else None
+        return state.model_copy(update={"chats": remaining, "default_chat": default_chat})
 
     if isinstance(action, SessionDefaultChatChangedAction):
         return state.model_copy(update={"default_chat": action.default_chat})
@@ -86,6 +110,29 @@ def session_reducer(state: SessionState, action: StateAction) -> SessionState:
             for c in (state.customizations or [])
         ]
         return state.model_copy(update={"customizations": updated})
+
+    if isinstance(action, SessionCustomizationUpdatedAction):
+        existing = state.customizations or []
+        target_id = action.customization.get("id")
+        if any(c.get("id") == target_id for c in existing):
+            upserted = [
+                action.customization if c.get("id") == target_id else c
+                for c in existing
+            ]
+        else:
+            upserted = [*existing, action.customization]
+        return state.model_copy(update={"customizations": upserted})
+
+    if isinstance(action, SessionCustomizationRemovedAction):
+        existing = state.customizations or []
+        # Remove at top level; also remove from children arrays
+        without_top = [c for c in existing if c.get("id") != action.id]
+        pruned = [
+            {**c, "children": [ch for ch in c.get("children", []) if ch.get("id") != action.id]}
+            if "children" in c else c
+            for c in without_top
+        ]
+        return state.model_copy(update={"customizations": pruned})
 
     if isinstance(action, SessionMcpServerStateChangedAction):
         return state  # ponytail: MCP server state is inside config; skip for now

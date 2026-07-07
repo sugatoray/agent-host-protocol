@@ -160,7 +160,7 @@ class CreateSessionParams(AhpModel):
 
 
 class CreateSessionResult(AhpModel):
-    session: URI
+    pass  # TS: result: null
 
 
 class DisposeSessionParams(BaseParams):
@@ -173,25 +173,29 @@ class DisposeSessionResult(AhpModel):
 
 class ListSessionsParams(BaseParams):
     channel: URI = "ahp-root://"
+    limit: int | None = None
+    cursor: str | None = None
 
 
 class ListSessionsResult(AhpModel):
-    sessions: list[dict[str, Any]] = Field(default_factory=list)
+    items: list[dict[str, Any]] = Field(default_factory=list)
+    next_cursor: str | None = Field(default=None, alias="nextCursor")
 
 
 # ---------------------------------------------------------------------------
-# Chat lifecycle
+# Chat lifecycle — types/channels-chat/commands.ts
 # ---------------------------------------------------------------------------
 
 
 class CreateChatParams(AhpModel):
     channel: URI  # session channel URI
-    title: str | None = None
-    config: dict[str, Any] | None = None
+    chat: URI  # client-chosen chat URI e.g. ahp-chat:/<uuid>
+    initial_message: dict[str, Any] | None = Field(default=None, alias="initialMessage")
+    source: dict[str, Any] | None = None  # ChatForkSource
 
 
 class CreateChatResult(AhpModel):
-    chat: URI
+    pass  # TS: result: null
 
 
 class DisposeChatParams(AhpModel):
@@ -210,25 +214,25 @@ class FetchTurnsParams(AhpModel):
 
 
 class FetchTurnsResult(AhpModel):
-    turns: list[Any] = Field(default_factory=list)  # list[Turn]
-    next_cursor: str | None = Field(default=None, alias="nextCursor")
+    pass  # TS: FetchTurnsResult = {}; turns arrive via chat/turnsLoaded action
 
 
 # ---------------------------------------------------------------------------
-# Terminal lifecycle
+# Terminal lifecycle — types/channels-terminal/commands.ts
 # ---------------------------------------------------------------------------
 
 
 class CreateTerminalParams(AhpModel):
     channel: URI  # session channel URI
-    shell: str | None = None
+    claim: dict[str, Any]  # TerminalClaim — required
+    name: str | None = None
     cwd: str | None = None
     cols: int | None = None
     rows: int | None = None
 
 
 class CreateTerminalResult(AhpModel):
-    terminal: URI
+    pass  # TS: result: null
 
 
 class DisposeTerminalParams(AhpModel):
@@ -271,32 +275,66 @@ class CompletionsResult(AhpModel):
 
 
 # ---------------------------------------------------------------------------
-# Session config
+# Session config — types/channels-root/commands.ts
 # ---------------------------------------------------------------------------
 
 
 class ResolveSessionConfigParams(AhpModel):
-    channel: URI  # session channel URI
-    config: dict[str, Any]
+    channel: URI = "ahp-root://"
+    provider: str | None = None
+    working_directory: URI | None = Field(default=None, alias="workingDirectory")
+    config: dict[str, Any] | None = None
 
 
 class ResolveSessionConfigResult(AhpModel):
-    config: dict[str, Any]
+    schema_: dict[str, Any] = Field(alias="schema")
+    values: dict[str, Any]
+
+
+class SessionConfigCompletionsParams(AhpModel):
+    channel: URI = "ahp-root://"
+    provider: str | None = None
+    working_directory: URI | None = Field(default=None, alias="workingDirectory")
+    config: dict[str, Any] | None = None
+    property: str  # property id from the schema to query values for
+    query: str | None = None
+
+
+class SessionConfigCompletionsResult(AhpModel):
+    items: list[dict[str, Any]] = Field(default_factory=list)  # list[SessionConfigValueItem]
 
 
 # ---------------------------------------------------------------------------
-# Changesets
+# Changesets — types/channels-changeset/commands.ts
 # ---------------------------------------------------------------------------
 
 
 class InvokeChangesetOperationParams(AhpModel):
     channel: URI  # changeset channel URI
-    operation: str
-    args: dict[str, Any] = Field(default_factory=dict)
+    operation_id: str = Field(alias="operationId")
+    target: dict[str, Any] | None = None  # ChangesetOperationTarget
 
 
 class InvokeChangesetOperationResult(AhpModel):
-    status: str  # ChangesetOperationStatus string
+    message: str | dict[str, Any] | None = None  # StringOrMarkdown
+    follow_up: dict[str, Any] | None = Field(default=None, alias="followUp")
+
+
+# ---------------------------------------------------------------------------
+# Resource-watch — types/channels-resource-watch/commands.ts
+# ---------------------------------------------------------------------------
+
+
+class CreateResourceWatchParams(AhpModel):
+    channel: URI = "ahp-root://"
+    uri: URI
+    recursive: bool | None = None
+    excludes: dict[str, Any] | None = None  # {items: list[str]}
+    includes: dict[str, Any] | None = None  # {items: list[str]}
+
+
+class CreateResourceWatchResult(AhpModel):
+    channel: URI  # ahp-resource-watch:/<id>
 
 
 # ---------------------------------------------------------------------------
@@ -417,7 +455,9 @@ COMMANDS: dict[str, tuple[type[AhpModel], type[AhpModel]]] = {
     "authenticate": (AuthenticateParams, AuthenticateResult),
     "completions": (CompletionsParams, CompletionsResult),
     "resolveSessionConfig": (ResolveSessionConfigParams, ResolveSessionConfigResult),
+    "sessionConfigCompletions": (SessionConfigCompletionsParams, SessionConfigCompletionsResult),
     "invokeChangesetOperation": (InvokeChangesetOperationParams, InvokeChangesetOperationResult),
+    "createResourceWatch": (CreateResourceWatchParams, CreateResourceWatchResult),
     "resourceRead": (ResourceReadParams, ResourceReadResult),
     "resourceWrite": (ResourceWriteParams, ResourceWriteResult),
     "resourceList": (ResourceListParams, ResourceListResult),

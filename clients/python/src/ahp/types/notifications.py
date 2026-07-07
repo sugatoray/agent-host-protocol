@@ -1,13 +1,13 @@
 """Server -> client notification payloads (JSON-RPC notifications, no response).
 
-Reconciled against canonical notification method names:
+Reconciled against canonical types/*.ts:
   - ``action``: ActionEnvelope broadcast
   - ``root/sessionAdded``: new session with channel URI + summary
-  - ``root/sessionRemoved``: session gone (field: ``session`` URI)
-  - ``root/sessionSummaryChanged``: existing session summary updated
-  - ``auth/required``: host needs client to authenticate (field: ``resource``)
-  - ``$/progress``: long-running operation progress
-  - ``otlp/exportLogs``, ``otlp/exportTraces``, ``otlp/exportMetrics``: telemetry
+  - ``root/sessionRemoved``: session gone (fields: ``channel``, ``session`` URI)
+  - ``root/sessionSummaryChanged``: existing session summary updated (fields: ``channel``, ``session``, ``changes``)
+  - ``auth/required``: host needs client to authenticate (fields: ``channel``, ``resource``, ``reason?``)
+  - ``root/progress``: long-running operation progress (fields: ``channel``, ``progressToken``, ``progress``, ``total?``, ``message?``)
+  - ``otlp/exportLogs``, ``otlp/exportTraces``, ``otlp/exportMetrics``: telemetry (fields: ``channel``, ``payload``)
 """
 
 from __future__ import annotations
@@ -33,19 +33,21 @@ class SessionAddedNotification(AhpModel):
     """``root/sessionAdded`` — a new session appeared on the host."""
 
     channel: URI
-    summary: dict[str, Any]  # ChatSummary / SessionSummary
+    summary: dict[str, Any]  # SessionSummary
 
 
 class SessionRemovedNotification(AhpModel):
     """``root/sessionRemoved``."""
 
-    session: URI  # NOT sessionUri — canonical field name
+    channel: URI
+    session: URI
 
 
 class SessionSummaryChangedNotification(AhpModel):
     """``root/sessionSummaryChanged`` — metadata on an existing session changed."""
 
     channel: URI
+    session: URI
     changes: dict[str, Any]
 
 
@@ -53,34 +55,43 @@ class AuthRequiredNotification(AhpModel):
     """``auth/required`` — host is asking client to (re)authenticate.
 
     ``resource`` is the protected resource URI per RFC 9728.
+    ``reason`` is one of ``"required"`` | ``"expired"``.
     """
 
-    resource: str  # NOT scheme — canonical field name
+    channel: URI
+    resource: str
+    reason: str | None = None
 
 
 class ProgressNotification(AhpModel):
-    """``$/progress`` — progress update for a long-running operation."""
+    """``root/progress`` — progress update for a long-running operation."""
 
-    token: str | int
-    value: dict[str, Any]
+    channel: URI
+    progress_token: str = Field(alias="progressToken")
+    progress: float
+    total: float | None = None
+    message: str | None = None
 
 
 class OtlpExportLogsNotification(AhpModel):
-    """``otlp/exportLogs`` — OpenTelemetry log records."""
+    """``otlp/exportLogs`` — OpenTelemetry log records (OTLP/JSON ExportLogsServiceRequest in ``payload``)."""
 
-    resource_logs: list[Any] = Field(default_factory=list, alias="resourceLogs")
+    channel: URI
+    payload: dict[str, Any]
 
 
 class OtlpExportTracesNotification(AhpModel):
-    """``otlp/exportTraces`` — OpenTelemetry trace spans."""
+    """``otlp/exportTraces`` — OpenTelemetry trace spans (OTLP/JSON ExportTraceServiceRequest in ``payload``)."""
 
-    resource_spans: list[Any] = Field(default_factory=list, alias="resourceSpans")
+    channel: URI
+    payload: dict[str, Any]
 
 
 class OtlpExportMetricsNotification(AhpModel):
-    """``otlp/exportMetrics`` — OpenTelemetry metric data points."""
+    """``otlp/exportMetrics`` — OpenTelemetry metric data points (OTLP/JSON ExportMetricsServiceRequest in ``payload``)."""
 
-    resource_metrics: list[Any] = Field(default_factory=list, alias="resourceMetrics")
+    channel: URI
+    payload: dict[str, Any]
 
 
 NOTIFICATIONS: dict[str, type[AhpModel]] = {
@@ -89,7 +100,7 @@ NOTIFICATIONS: dict[str, type[AhpModel]] = {
     "root/sessionRemoved": SessionRemovedNotification,
     "root/sessionSummaryChanged": SessionSummaryChangedNotification,
     "auth/required": AuthRequiredNotification,
-    "$/progress": ProgressNotification,
+    "root/progress": ProgressNotification,
     "otlp/exportLogs": OtlpExportLogsNotification,
     "otlp/exportTraces": OtlpExportTracesNotification,
     "otlp/exportMetrics": OtlpExportMetricsNotification,

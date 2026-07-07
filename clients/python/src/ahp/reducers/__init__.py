@@ -10,6 +10,7 @@ against a corrected state without any hidden coupling.
 from .annotations import annotations_reducer
 from .changeset import changeset_reducer
 from .chat import chat_reducer
+from .resource_watch import resource_watch_reducer
 from .root import root_reducer
 from .session import session_reducer
 from .terminal import terminal_reducer
@@ -18,6 +19,7 @@ __all__ = [
     "annotations_reducer",
     "changeset_reducer",
     "chat_reducer",
+    "resource_watch_reducer",
     "root_reducer",
     "session_reducer",
     "terminal_reducer",

@@ -29,14 +29,14 @@ async def test_create_session_sends_channel_and_returns_uri():
     client = await initialized_client(client_transport, host_transport)
 
     request, session_uri = await asyncio.gather(
-        respond_to_next_request(host_transport, {"session": "ahp-session:/new"}),
-        client.create_session("ahp-root://", provider="copilot"),
+        respond_to_next_request(host_transport, {}),
+        client.create_session(provider="copilot"),
     )
 
     assert request["method"] == "createSession"
-    assert request["params"]["channel"] == "ahp-root://"
+    assert request["params"]["channel"].startswith("ahp-session:/")
     assert request["params"]["provider"] == "copilot"
-    assert session_uri == "ahp-session:/new"
+    assert session_uri.startswith("ahp-session:/")  # client-generated URI
 
 
 async def test_dispose_session_sends_channel_and_forgets_local_state():
@@ -58,12 +58,12 @@ async def test_list_sessions_returns_result():
     client = await initialized_client(client_transport, host_transport)
 
     request, result = await asyncio.gather(
-        respond_to_next_request(host_transport, {"sessions": [{"uri": "ahp-session:/a"}]}),
+        respond_to_next_request(host_transport, {"items": [{"resource": "ahp-session:/a"}]}),
         client.list_sessions(),
     )
 
     assert request["method"] == "listSessions"
-    assert len(result.sessions) == 1
+    assert len(result.items) == 1
 
 
 async def test_create_chat_sends_channel_and_returns_uri():
@@ -71,14 +71,14 @@ async def test_create_chat_sends_channel_and_returns_uri():
     client = await subscribed_session_client(client_transport, host_transport, "ahp-session:/abc")
 
     request, chat_uri = await asyncio.gather(
-        respond_to_next_request(host_transport, {"chat": "ahp-chat:/new"}),
-        client.create_chat("ahp-session:/abc", title="My Chat"),
+        respond_to_next_request(host_transport, {}),
+        client.create_chat("ahp-session:/abc"),
     )
 
     assert request["method"] == "createChat"
     assert request["params"]["channel"] == "ahp-session:/abc"
-    assert request["params"]["title"] == "My Chat"
-    assert chat_uri == "ahp-chat:/new"
+    assert request["params"]["chat"].startswith("ahp-chat:/")  # client-generated
+    assert chat_uri.startswith("ahp-chat:/")  # same URI returned
 
 
 async def test_dispose_chat_sends_channel_and_forgets_local_state():
@@ -104,40 +104,36 @@ async def test_dispose_chat_sends_channel_and_forgets_local_state():
     assert client.get_state("ahp-chat:/x") is None
 
 
-async def test_fetch_turns_sends_params_and_returns_result():
+async def test_fetch_turns_sends_params_and_returns_none():
     client_transport, host_transport = InMemoryTransport.pair()
     client = await initialized_client(client_transport, host_transport)
 
-    result_payload = {
-        "turns": [{"id": "t1", "message": {}, "responseParts": [], "state": {"type": "complete"}}],
-        "nextCursor": "prev-page-token",
-    }
-
     request, result = await asyncio.gather(
-        respond_to_next_request(host_transport, result_payload),
+        respond_to_next_request(host_transport, {}),
         client.fetch_turns("ahp-chat:/x", cursor="tok"),
     )
 
     assert request["method"] == "fetchTurns"
     assert request["params"]["channel"] == "ahp-chat:/x"
     assert request["params"]["cursor"] == "tok"
-    assert result.next_cursor == "prev-page-token"
-    assert result.turns[0]["id"] == "t1"
+    assert result is None  # turns arrive via chat/turnsLoaded action, not in result
 
 
 async def test_create_terminal_sends_channel_and_returns_uri():
     client_transport, host_transport = InMemoryTransport.pair()
     client = await subscribed_session_client(client_transport, host_transport, "ahp-session:/abc")
 
+    claim = {"kind": "owner"}
     request, terminal_uri = await asyncio.gather(
-        respond_to_next_request(host_transport, {"terminal": "ahp-terminal:/new"}),
-        client.create_terminal("ahp-session:/abc", shell="/bin/zsh", cwd="/tmp"),
+        respond_to_next_request(host_transport, {}),
+        client.create_terminal(claim, cwd="/tmp"),
     )
 
     assert request["method"] == "createTerminal"
-    assert request["params"]["channel"] == "ahp-session:/abc"
-    assert request["params"]["shell"] == "/bin/zsh"
-    assert terminal_uri == "ahp-terminal:/new"
+    assert request["params"]["channel"].startswith("ahp-terminal:/")  # client-generated
+    assert request["params"]["claim"] == claim
+    assert request["params"]["cwd"] == "/tmp"
+    assert terminal_uri.startswith("ahp-terminal:/")  # same URI returned
 
 
 async def test_dispose_terminal_sends_channel_and_forgets_local_state():
@@ -179,17 +175,30 @@ async def test_completions_sends_params_and_returns_result():
     assert result.items == ["foo", "foobar"]
 
 
-async def test_invoke_changeset_operation_sends_params_and_returns_status():
+async def test_invoke_changeset_operation_sends_params_and_returns_result():
     client_transport, host_transport = InMemoryTransport.pair()
     client = await initialized_client(client_transport, host_transport)
 
-    request, status = await asyncio.gather(
-        respond_to_next_request(host_transport, {"status": "applied"}),
-        client.invoke_changeset_operation("ahp-changeset:/x", "accept", args={"id": "1"}),
+    request, result = await asyncio.gather(
+        respond_to_next_request(host_transport, {"message": "Applied successfully"}),
+        client.invoke_changeset_operation("ahp-changeset:/x", "accept"),
     )
 
     assert request["method"] == "invokeChangesetOperation"
     assert request["params"]["channel"] == "ahp-changeset:/x"
-    assert request["params"]["operation"] == "accept"
-    assert request["params"]["args"] == {"id": "1"}
-    assert status == "applied"
+    assert request["params"]["operationId"] == "accept"
+    assert result.message == "Applied successfully"
+
+
+async def test_ping_sends_request_and_returns_none():
+    client_transport, host_transport = InMemoryTransport.pair()
+    client = await initialized_client(client_transport, host_transport)
+
+    request, result = await asyncio.gather(
+        respond_to_next_request(host_transport, {}),
+        client.ping(),
+    )
+
+    assert request["method"] == "ping"
+    assert request["params"]["channel"] == "ahp-root://"
+    assert result is None

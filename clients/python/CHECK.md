@@ -10,7 +10,7 @@ TARGET_FOLDER: clients/python
 
 ## COMMAND-BODY
 
-Update SPEC.md, GAPANALYSIS.md, HANDOFF.md and add a new file WISDOM.md under {{ TARGET_FOLDER }} folder. WISDOM.md will contain project specific:
+Update SPEC.md, GAPANALYSIS.md, HANDOFF.md and add/update a file WISDOM.md under {{ TARGET_FOLDER }} folder. WISDOM.md will contain project specific:
 
 - "Constraints: Respect and conform to them"
 - "Traps: Avoid them always"
