@@ -252,6 +252,18 @@ against a real pydantic install (sandbox had no network access to install
    (point 2), unverified `state.py` field sets (point 3) — is still exactly
    as provisional as described above; passing tests confirm the code runs as
    written, not that the field sets match the real upstream schema.
+6. **Update 2026-07-06 (v9): points 2-4 above are now confirmed, not just
+   flagged.** With the repo-root `types/*.ts` canonical source reachable, a
+   full field-by-field diff was run against it (and `schema/*.schema.json`
+   as tie-breaker) — see [`GAPANALYSIS.md`](./GAPANALYSIS.md). Result: this
+   isn't a handful of wrong field names. Nearly every state field, action
+   variant, command param/result shape, notification shape, and every
+   `AhpErrorCode` value disagrees with canonical `types/*.ts`, and two
+   channel families (`otlp`, `resource-watch`) don't exist in this client at
+   all. `GAPANALYSIS.md` has the itemized, file:line-cited diff and a
+   suggested fix order. Treat points 2-4 above as historical context for
+   *why* the gap exists, not as the current todo list — `GAPANALYSIS.md` is
+   the current todo list.
 
 ## 8. Changelog of this document
 
@@ -348,3 +360,15 @@ against a real pydantic install (sandbox had no network access to install
   (`_channel_states`/`_last_seen_server_seq`), each `dispose_*`/`unsubscribe`
   mirrors the same forgetting logic. Full suite: 105/105 passing. Only
   `ping` remains unwrapped from the `COMMANDS` registry (low priority).
+- v9 (2026-07-06) — ran the field-by-field verification against canonical
+  `types/*.ts` that §7a points 2-4 had been flagging as an open hypothesis
+  since v2. Wrote up the full diff in the new `GAPANALYSIS.md` (one section
+  per channel family plus `common/`, each discrepancy file:line-cited on
+  both sides). No production code changed in this pass — this was
+  documentation/verification only, per explicit direction to capture the
+  analysis before starting the fix work. Conclusion: the gap is systemic,
+  not a handful of typos — see `GAPANALYSIS.md`'s "What this means for
+  next-session sequencing" section for the suggested channel-by-channel
+  fix order (errors → common → root/session → chat/terminal →
+  changeset/annotations → new otlp/resource-watch channels), each step
+  still via Red/Green TDD.

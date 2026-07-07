@@ -9,10 +9,19 @@ Working memory for Claude sessions picking up work in this directory
    what was actually tested vs. only syntax-checked, known gotchas, and a
    recommended order of work. Written specifically for picking this project
    back up in a new session.
-2. **[`SPEC.md`](./SPEC.md)** — the design plan and the full decision/changelog
+2. **[`GAPANALYSIS.md`](./GAPANALYSIS.md)** — **read before touching
+   `types/` or `reducers/`.** A field-by-field diff of this client's
+   types/reducers against the canonical protocol source (repo-root
+   `types/*.ts`, `schema/*.schema.json`). Nearly every state field, action
+   variant, command shape, notification shape, and error code currently
+   disagrees with the canonical source; two channel families (`otlp`,
+   `resource-watch`) are entirely missing. This document, not `HANDOFF.md`'s
+   older "spot-check" language, is the current source of truth for what to
+   fix next and in what order.
+3. **[`SPEC.md`](./SPEC.md)** — the design plan and the full decision/changelog
    history (§7 open questions, §7a verification caveats, §8 phase-by-phase
    changelog). Update this as you go, the same way prior sessions did.
-3. **[`CHANGELOG.md`](./CHANGELOG.md)** — package-level changelog, Keep a
+4. **[`CHANGELOG.md`](./CHANGELOG.md)** — package-level changelog, Keep a
    Changelog format. This client releases independently on its own
    `python/vX.Y.Z` tags, matching the Rust/Go/TypeScript/Kotlin clients in
    this repo.
@@ -40,10 +49,12 @@ pip install -e ".[dev]"
 pytest -v
 ```
 
-As of 2026-07-06 the full suite has a confirmed real green run (94/94,
+As of 2026-07-06 the full suite has a confirmed real green run (105/105,
 `uv run pytest -v`) — `ahp.client`, `ahp.hosts`, `ahp.types`, `ahp.reducers`,
 and `ahp.transport` are all actually executed now, not just `py_compile`-checked.
-See `HANDOFF.md`'s "Test coverage" section for detail.
+See `HANDOFF.md`'s "Test coverage" section for detail. **Green here means the
+code matches its own tests, not that it matches the protocol** — see
+`GAPANALYSIS.md`, whose tests haven't been written yet.
 
 ## Conventions in this package
 

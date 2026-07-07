@@ -21,10 +21,19 @@
   and `__all__`. Everything else (`types`, `reducers`, `client`, `hosts`) now
   has confirmed real green runs, not just `py_compile`. See the updated Test
   coverage table below.
-- Nothing here has been checked against the actual Rust/Go/TypeScript client
-  source or the JSON schema files upstream. If you have browser/API access to
-  `microsoft/agent-host-protocol`, reconciling against those is probably the
-  most valuable next step.
+- **Update 2026-07-06 (later same day): read this before touching
+  `types.py`/`actions.py`/`state.py`/`errors.py`/`reducers/` — see
+  [`GAPANALYSIS.md`](./GAPANALYSIS.md).** The repo-root canonical protocol
+  source (`types/*.ts` per-channel dirs, `schema/*.schema.json`) is now
+  reachable, and a field-by-field diff against it was run. Conclusion:
+  passing tests here confirm the code runs as *written*, not that it matches
+  the real protocol — nearly every state field, action-variant name, command
+  param/result shape, notification shape, and every single error-code value
+  currently disagrees with canonical `types/*.ts`, and two channel families
+  (`otlp`, `resource-watch`) don't exist in this client at all.
+  `GAPANALYSIS.md` is the itemized, file:line-cited diff; treat it as
+  superseding the "spot-check state.py/actions.py" framing below and in
+  `SPEC.md` §7a — this is a full reconciliation, not a patch.
 
 ## Repo context
 
@@ -72,16 +81,24 @@ delegating `get_state`/`dispatch_action`.
 - **`StateAction` only has a seed set of variants** (a handful per channel
   family), not the full ~80-variant union the real protocol has. The
   extension pattern is documented at the top of `types/actions.py`. Adding
-  more variants is mechanical but there are a lot of them.
+  more variants is mechanical but there are a lot of them. **This hypothesis
+  has since been checked against canonical `types/*.ts` — see
+  [`GAPANALYSIS.md`](./GAPANALYSIS.md)'s per-channel "Actions" sections for
+  the exact missing/invented variant lists.**
 - **`state.py` field sets are inferred, not schema-verified.** `RootState`,
   `SessionState`, `ChatState`, `TerminalState`, `ChangesetState`,
   `AnnotationsState` field sets came from spec prose + one third-party
   AHP-adjacent VS Code plugin's ported TS interfaces — not from
   `schema/*.schema.json` directly (couldn't fetch it — see "Access
   limitations" below). Treat every field name as a hypothesis to verify.
+  **This has since been done — see [`GAPANALYSIS.md`](./GAPANALYSIS.md);
+  nearly every field in every channel's state model disagrees with the
+  canonical source.**
 - **`errors.AhpErrorCode` values are explicit placeholders** (`-32000` through
   `-32009`, sequentially assigned) — not sourced from any authoritative
-  upstream error-code table.
+  upstream error-code table. **Confirmed wrong — see `GAPANALYSIS.md`'s
+  `common/` → "Errors" section: every value collides with a different,
+  real TS error code, and two real codes (`-32010`, `-32011`) are missing.**
 - **No `unsubscribe` test, no `ping` test.**
 - **Open design decisions** (see SPEC.md §7 for full detail):
   - WebSocket library: `websockets>=12.0` is pinned in `pyproject.toml`'s
@@ -227,19 +244,30 @@ just install pydantic for real and run pytest normally.
    lifecycle methods~~ — **done 2026-07-06** (`tests/client/test_lifecycle.py`,
    11 tests, all passing). `ping` is the only `COMMANDS`-registry method
    still unwrapped, and it's low priority.
-3. If you have GitHub browser/API access, spot-check `state.py` and
+3. ~~If you have GitHub browser/API access, spot-check `state.py` and
    `actions.py` field names against `microsoft/agent-host-protocol`'s
-   `schema/*.schema.json` and the TypeScript client's generated types. Fix
-   discrepancies. This is now the biggest open item.
-4. Only after 3: consider expanding `StateAction` toward full coverage,
-   revisiting the WebSocket-library and min-Python-version open questions,
-   and adding structured logging to the reader loop.
+   `schema/*.schema.json` and the TypeScript client's generated types~~ —
+   **done 2026-07-06**: full field-by-field diff against canonical
+   `types/*.ts` completed and written up in
+   [`GAPANALYSIS.md`](./GAPANALYSIS.md). Result: this is not a small
+   fix-up — reconcile `ahp/types/` and `ahp/reducers/` channel-by-channel
+   against `GAPANALYSIS.md`'s findings, via Red/Green TDD as usual,
+   following the priority order at the bottom of that document
+   (`common/errors.ts` first, then `common/` commands/notifications/state
+   primitives, then `root`/`session`, then `chat`/`terminal`, then
+   `changeset`/`annotations`, then adding `otlp`/`resource-watch` from
+   scratch). This is now the biggest open item — bigger than previously
+   understood.
+4. Only after 3 is substantially underway: revisit the WebSocket-library and
+   min-Python-version open questions, and add structured logging to the
+   reader loop.
 
 ## File map
 
 ```
 clients/python/
 ├── SPEC.md          # design plan + decision log + phase-by-phase changelog (§8)
+├── GAPANALYSIS.md    # field-by-field diff vs. canonical types/*.ts — read before touching types/reducers
 ├── CHANGELOG.md      # package-level changelog (Keep a Changelog format)
 ├── HANDOFF.md          # this file
 ├── CLAUDE.md            # working-memory pointer for Claude Code sessions
