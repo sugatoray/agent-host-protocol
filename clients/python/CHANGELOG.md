@@ -9,6 +9,17 @@ Rust/Go/TypeScript/Kotlin clients in this repo.
 
 ### Added
 
+- `ChatState.origin` (`dict[str, Any] | None`): how the chat was created —
+  `{kind:'user'}`, `{kind:'fork', chat, turnId}`, or `{kind:'tool', chat, toolCallId}`.
+  Matches `types/channels-chat/state.ts:51–69 ChatOrigin`.
+
+- `ChatState.interactivity` (`str | None`): `'full'`, `'read-only'`, or `'hidden'`.
+  Determines whether a UI should render chat input controls. Absent defaults to
+  `'full'` per the protocol spec.
+
+- `ChatState.working_directory` (`str | None`, alias `workingDirectory`): per-chat
+  working directory; overrides the session's `workingDirectory` when present.
+
 - `ChatToolCallApprovedAction` and `ChatToolCallDeniedAction`: typed convenience
   models for constructing/dispatching tool-call confirmations. `approved: Literal[True]`
   with required `confirmed: str` (ToolCallConfirmationReason), and `approved: Literal[False]`
@@ -31,6 +42,12 @@ Rust/Go/TypeScript/Kotlin clients in this repo.
   requests, and `ERROR` for unexpected exceptions in `_handle_host_request`.
 
 ### Fixed
+
+- **`SessionMcpServerStateChangedAction` reducer** — was a deliberate no-op.
+  Now searches `state.customizations` by `action.id`: top-level first, then inside
+  container `.children` arrays. Updates `state` and `channel` on the matched
+  `mcpServer` entry immutably. Returns state unchanged if no match, empty list, or
+  `None`. Mirrors `types/channels-session/reducer.ts:278–329`.
 
 - **`ChatToolCallConfirmedAction` subtype fields** — added `confirmed`, `reason`,
   `reason_message`, `user_suggestion`, `edited_tool_input`, and `selected_option_id`

@@ -34,6 +34,9 @@
   Suite: **240/240**. See SPEC.md v14. Added `confirmed`, `reason`, `reason_message`,
   `user_suggestion`, `edited_tool_input`, `selected_option_id` fields.
   `ChatToolCallApprovedAction` and `ChatToolCallDeniedAction` added as typed helpers.
+- **2026-07-07: All remaining gaps closed — `ChatState` fields + MCP reducer.**
+  Suite: **257/257**. See SPEC.md v15. `ChatState` gains `origin`, `interactivity`,
+  `working_directory`. `SessionMcpServerStateChangedAction` reducer implemented.
 
 ## Repo context
 
@@ -67,13 +70,13 @@ swap), `close`, async context manager, `create_session`/`create_chat`/
 The mechanically-fixable gaps in `GAPANALYSIS.md` are all done. What remains
 is intentional laxity or depth choices — open when the need arises:
 
-- **`ChatState` missing fields** — `origin`, `interactivity`, `workingDirectory`
-  (`types/channels-chat/state.ts:51-69`). Add when needed.
 - **`ChatToolCallConfirmedAction` subtype split** — **DONE** (2026-07-07).
   `ChatToolCallConfirmedAction` now carries all subtype fields; `ChatToolCallApprovedAction`
   and `ChatToolCallDeniedAction` added as typed construction helpers.
-- **`SessionMcpServerStateChangedAction` reducer** — deliberately no-ops. TS updates
-  matching customization entries; implement when MCP tools are used.
+- **`ChatState` missing fields** — **DONE** (2026-07-07). `origin`, `interactivity`,
+  `working_directory` added.
+- **`SessionMcpServerStateChangedAction` reducer** — **DONE** (2026-07-07). Searches
+  customizations by id (top-level then children), updates `state`/`channel`.
 - **Chat reducer coverage** — 17 of 24 variants no-op. Fine — canonical TS has no
   `channels-chat/reducer.ts` at all.
 - **WebSocket library choice** — `websockets>=12.0` pinned in optional extra but the
@@ -90,7 +93,7 @@ is intentional laxity or depth choices — open when the need arises:
 | `ahp.client` | `tests/client/` — 5 files + `_helpers.py` | ~30 tests | |
 | `ahp.hosts` | `tests/hosts/` — 1 file | 11 tests | |
 
-**Full suite: `uv run pytest -v` → 240 passed (2026-07-07).**
+**Full suite: `uv run pytest -v` → 257 passed (2026-07-07).**
 
 ## Gotchas — things that will bite you if you're not careful
 
@@ -168,11 +171,9 @@ All canonical protocol gaps are closed. Remaining work is optional or on-demand:
 
 1. **Integration test against a live AHP host** — verify URI scheme names,
    `create*` round-trips, and reconnect behavior against a real server.
-2. **`ChatToolCallConfirmedAction` subtype split** — add `reason`/`confirmed` fields
-   when tool-call denial reasons need to be surfaced (see `GAPCONTEXT.md`).
-3. **Packaging** — `python/vX.Y.Z` tag, PyPI, CI/CD (GitHub Actions with OIDC
+2. **Packaging** — `python/vX.Y.Z` tag, PyPI, CI/CD (GitHub Actions with OIDC
    Trusted Publishing matching the TS Azure DevOps pattern).
-4. **Finalize open questions** in `SPEC.md §7`: WebSocket library, min Python version.
+3. **Finalize open questions** in `SPEC.md §7`: WebSocket library, min Python version.
 
 ## File map
 

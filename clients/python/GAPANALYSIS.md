@@ -83,8 +83,6 @@ shape this is acceptable laxity, not a naming gap.
 `modified_at`, `turns`, `turns_next_cursor`, `steering_message`, `queued_messages`,
 `input_requests`, `draft`, `meta`. Remaining minor laxities (not naming gaps):
 
-- Missing `origin`, `interactivity`, `workingDirectory`
-  (`types/channels-chat/state.ts:51-69`) — depth choice, not a naming gap.
 - `Turn.state` defaults to `{"type": "running"}` but TS `Turn.state` is a string enum
   (`'complete'|'cancelled'|'error'`); in-progress turns are the separate `ActiveTurn`
   type. Low-impact since `Turn` objects only appear in completed state in practice.
@@ -182,9 +180,10 @@ For cross-client evidence and rationale on each item below, see
    6 tests in `tests/types/test_telemetry.py`. 220/220 passing.
    → [GAPCONTEXT.md § TelemetryCapabilities](./GAPCONTEXT.md#telemetrycapabilities-in-initializeresult)
 
-2. **`ChatState` missing fields** — `origin`, `interactivity`, `workingDirectory`
-   (`types/channels-chat/state.ts:51-69`). Depth choice today; needed for any UI
-   that renders chat metadata.
+2. ~~**`ChatState` missing fields**~~ — **DONE** (2026-07-07). `origin`
+   (`dict[str, Any] | None`), `interactivity` (`str | None`), and `working_directory`
+   (`str | None`, alias `workingDirectory`) added to `ChatState`. 10 tests in
+   `tests/types/test_chat_state_fields.py`. Suite: 257/257.
    → [GAPCONTEXT.md § ChatState missing fields](./GAPCONTEXT.md#chatstate-missing-fields-origin-interactivity-workingdirectory)
 
 3. ~~**`Turn.state` default**~~ — **DONE** (2026-07-07). `Turn.state` is now
@@ -201,8 +200,10 @@ For cross-client evidence and rationale on each item below, see
    added as typed convenience models for construction. 9 new tests. Suite: 240/240.
    → [GAPCONTEXT.md § ChatToolCallConfirmedAction](./GAPCONTEXT.md#chattoollcallconfirmedaction-subtype-split)
 
-5. **`SessionMcpServerStateChangedAction` reducer** — deliberately no-ops; TS
-   updates matching customization entries. Implement when MCP server tools are used.
+5. ~~**`SessionMcpServerStateChangedAction` reducer**~~ — **DONE** (2026-07-07).
+   Reducer now searches `state.customizations` by `action.id` (top-level then
+   children), updates `state` and `channel` on the matched `mcpServer` entry.
+   9 tests in `tests/reducers/test_session_mcp_reducer.py`. Suite: 257/257.
    → [GAPCONTEXT.md § SessionMcpServerStateChangedAction](./GAPCONTEXT.md#sessionmcpserverstatechangedaction-reducer)
 
 6. **Chat reducer coverage** — 17 of 24 variants still no-op. Fine, since canonical

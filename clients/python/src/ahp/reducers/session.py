@@ -135,7 +135,38 @@ def session_reducer(state: SessionState, action: StateAction) -> SessionState:
         return state.model_copy(update={"customizations": pruned})
 
     if isinstance(action, SessionMcpServerStateChangedAction):
-        return state  # ponytail: MCP server state is inside config; skip for now
+        if not state.customizations:
+            return state
+        patch = {"state": action.state, "channel": action.channel}
+        # Search top-level first
+        for i, entry in enumerate(state.customizations):
+            if entry.get("id") == action.id:
+                if entry.get("type") != "mcpServer":
+                    return state
+                updated = [*state.customizations]
+                updated[i] = {**entry, **patch}
+                return state.model_copy(update={"customizations": updated})
+        # Search children of container entries
+        changed = False
+        new_list = []
+        for entry in state.customizations:
+            children = entry.get("children")
+            if not children:
+                new_list.append(entry)
+                continue
+            new_children = list(children)
+            for j, child in enumerate(children):
+                if child.get("id") == action.id and child.get("type") == "mcpServer":
+                    new_children[j] = {**child, **patch}
+                    changed = True
+                    break
+            new_list.append({**entry, "children": new_children} if changed else entry)
+            if changed:
+                new_list.extend(state.customizations[len(new_list):])
+                break
+        if not changed:
+            return state
+        return state.model_copy(update={"customizations": new_list})
 
     if isinstance(action, SessionChangesetsChangedAction):
         return state.model_copy(update={"changesets": action.changesets})

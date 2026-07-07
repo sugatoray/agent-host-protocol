@@ -46,106 +46,7 @@
 
 ## Open Gaps
 
----
-
-## ChatState missing fields (origin, interactivity, workingDirectory)
-
-**GAPANALYSIS.md section**: `chat` → State
-**Priority**: low
-**Status**: open (2026-07-07)
-
-### What is missing
-
-`ChatState` in `src/ahp/types/state.py` is missing three fields present in the
-canonical `types/channels-chat/state.ts:51–69`:
-
-- `origin: ChatOrigin | None` — how the chat was created (user-initiated, tool-
-  initiated, etc.)
-- `interactivity: ChatInteractivity | None` — whether the chat accepts user input
-- `workingDirectory: URI | None` — working directory context for the chat
-
-### Cross-client evidence
-
-| Client     | Has these fields? | Location |
-|------------|-------------------|----------|
-| TypeScript | **yes** | `types/channels-chat/state.ts:51–69` |
-| Go         | **yes** | `clients/go/ahptypes/state.generated.go` |
-| Rust       | **yes** | `clients/rust/crates/ahp-types/src/state.rs` |
-| Python     | **no** | `src/ahp/types/state.py` (`ChatState`) |
-
-### Why it matters
-
-These fields are metadata about the chat's context, not its runtime state.
-Missing them means:
-
-1. A client rendering a chat list (e.g. to show which chats accept input) cannot
-   check `chat.interactivity` — it must fall back to the raw extra fields dict via
-   pydantic's `extra="allow"` leak-through, which is untyped and fragile.
-2. `origin` is needed to distinguish agent-initiated chats from user-initiated
-   ones — relevant for filtering or grouping in a UI.
-3. `workingDirectory` is displayed in some host UIs alongside the chat title.
-
-These are depth choices today (existing code works without them) but become
-protocol gaps if the Python client is ever used to drive a real host UI.
-
-### Canonical shape
-
-```typescript
-// types/channels-chat/state.ts:51–69 (abbreviated)
-interface ChatState {
-  // ... existing fields ...
-  origin?: ChatOrigin;               // 'user' | 'agent' | ...
-  interactivity?: ChatInteractivity; // 'interactive' | 'background'
-  workingDirectory?: URI;
-}
-```
-
----
-
-
-## SessionMcpServerStateChangedAction reducer
-
-**GAPANALYSIS.md section**: `session` → Reducer
-**Priority**: low
-**Status**: open (deliberate no-op, 2026-07-07)
-
-### What is missing
-
-`SessionMcpServerStateChangedAction` in `reducers/session.py` deliberately no-ops.
-The canonical TS reducer (`types/channels-session/reducer.ts:278–329`) updates the
-matching entry in `state.customizations` — specifically the
-`ServerToolsCustomization` sub-shape that tracks per-MCP-server tool enable/disable
-state.
-
-### Cross-client evidence
-
-The canonical TS reducer is the reference; Go and Rust reducers are not shipped
-(reducers are a Python/TS concept only — Go and Rust delegate state management to
-the application layer).
-
-### Why it matters
-
-Without this reducer branch, subscribing to a session and receiving
-`session/mcpServerStateChanged` actions leaves the local `SessionState.customizations`
-stale. Any UI that shows MCP server connection status or enabled tools will show
-outdated data. This only matters if:
-
-1. The application displays MCP server state, AND
-2. The application uses the Python client's local `SessionState` copy rather than
-   re-fetching on demand.
-
-If neither is true, the no-op is harmless.
-
-### Canonical shape
-
-```typescript
-// types/channels-session/reducer.ts:278–329 (logic summary)
-// Find the ServerToolsCustomization in state.customizations by serverId,
-// then update its connectionState / tools fields.
-```
-
-Full implementation requires modeling `ServerToolsCustomization` shape first
-(currently `dict[str, Any]` in `SessionState.customizations`).
+*All identified gaps are now closed.*
 
 ---
 
@@ -154,6 +55,64 @@ Full implementation requires modeling `ServerToolsCustomization` shape first
 Entries below were open gaps that have been resolved. Kept for historical
 context — the rationale and cross-client evidence remain valid reference
 material for understanding the protocol shape.
+
+---
+
+## ChatState missing fields (origin, interactivity, workingDirectory)
+
+**GAPANALYSIS.md section**: `chat` → State
+**Priority**: low
+**Status**: closed (2026-07-07)
+**Closed in**: SPEC.md v15 · `tests/types/test_chat_state_fields.py` (10 tests) · suite 257/257
+
+### What was missing
+
+`ChatState` was missing `origin`, `interactivity`, and `workingDirectory`
+from `types/channels-chat/state.ts:51–69`. All three are present in TypeScript,
+Go, and Rust clients.
+
+### Cross-client evidence
+
+| Client     | Has these fields? | Location |
+|------------|-------------------|----------|
+| TypeScript | **yes** | `types/channels-chat/state.ts:51–69` |
+| Go         | **yes** | `clients/go/ahptypes/state.generated.go` |
+| Rust       | **yes** | `clients/rust/crates/ahp-types/src/state.rs` |
+| Python     | **was no** → now yes | `src/ahp/types/state.py` |
+
+### Fix applied
+
+```python
+class ChatState(AhpModel):
+    origin: dict[str, Any] | None = None          # ChatOrigin tagged union
+    interactivity: str | None = None              # 'full'|'read-only'|'hidden'
+    working_directory: str | None = Field(default=None, alias="workingDirectory")
+```
+
+---
+
+## SessionMcpServerStateChangedAction reducer
+
+**GAPANALYSIS.md section**: `session` → Reducer
+**Priority**: low
+**Status**: closed (2026-07-07)
+**Closed in**: SPEC.md v15 · `tests/reducers/test_session_mcp_reducer.py` (9 tests) · suite 257/257
+
+### What was missing
+
+`SessionMcpServerStateChangedAction` in `reducers/session.py` deliberately no-oped.
+The canonical TS reducer (`types/channels-session/reducer.ts:278–329`) updates
+`state` and `channel` on the matching `McpServerCustomization` entry (top-level
+or nested child).
+
+### Fix applied
+
+```python
+# Searches state.customizations by action.id at top-level, then in children.
+# Updates {"state": action.state, "channel": action.channel} on the matched entry.
+# Returns state unchanged if no match or if customizations is None/empty.
+# Immutable: builds new list/dict, never mutates in place.
+```
 
 ---
 

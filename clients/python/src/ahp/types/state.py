@@ -111,6 +111,11 @@ class ChatState(AhpModel):
     status: Any = None
     activity: str | None = None
     modified_at: str | None = Field(default=None, alias="modifiedAt")
+    # ChatOrigin tagged union: {kind:'user'} | {kind:'fork',chat,turnId} | {kind:'tool',chat,toolCallId}
+    origin: dict[str, Any] | None = None
+    # ChatInteractivity: 'full' | 'read-only' | 'hidden' (types/channels-chat/state.ts:194-205)
+    interactivity: str | None = None
+    working_directory: str | None = Field(default=None, alias="workingDirectory")
     turns: list[Turn] = Field(default_factory=list)
     turns_next_cursor: str | None = Field(default=None, alias="turnsNextCursor")
     # activeTurn is an ActiveTurn object on the wire (types/channels-chat/state.ts:529-542)

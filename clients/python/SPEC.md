@@ -445,6 +445,19 @@ against a real pydantic install (sandbox had no network access to install
     subtype split, `SessionMcpServerStateChangedAction` reducer.
   - `AhpClient.ping()` wrapper added; structured logging (`logging.getLogger(__name__)`)
     added to reader loop (malformed messages, unhandled host requests). Suite: 214/214.
+- v15 (2026-07-07) — closed the last two open gaps from GAPCONTEXT.md via Red/Green TDD.
+  (1) `ChatState` missing fields: `origin` (`dict[str, Any] | None`), `interactivity`
+  (`str | None`, values `'full'|'read-only'|'hidden'`), and `working_directory`
+  (`str | None`, alias `workingDirectory`) added to `ChatState` in `state.py`.
+  10 tests in `tests/types/test_chat_state_fields.py`.
+  (2) `SessionMcpServerStateChangedAction` reducer: was a deliberate no-op; now
+  searches `state.customizations` for a matching `mcpServer` entry by `action.id`
+  (top-level first, then inside container `.children`), updates its `state` and
+  `channel` fields immutably. Returns state unchanged if no match, if
+  customizations is `None`/empty, or if the matched entry has a non-`mcpServer`
+  type. Logic mirrors `types/channels-session/reducer.ts:278–329`. 9 tests in
+  `tests/reducers/test_session_mcp_reducer.py`. All gaps from GAPCONTEXT.md now
+  closed. Suite: 257/257.
 - v14 (2026-07-07) — closed `ChatToolCallConfirmedAction` subtype split via Red/Green TDD.
   `ChatToolCallConfirmedAction` (the `StateAction` union member) now carries all fields
   from both canonical subtypes: `confirmed` + `edited_tool_input` (approved path) and
