@@ -187,9 +187,11 @@ For cross-client evidence and rationale on each item below, see
    that renders chat metadata.
    → [GAPCONTEXT.md § ChatState missing fields](./GAPCONTEXT.md#chatstate-missing-fields-origin-interactivity-workingdirectory)
 
-3. **`Turn.state` default** — currently `{"type": "running"}`; TS uses a string enum
-   (`'complete'|'cancelled'|'error'`). Silent wrong-behavior risk in any code that
-   branches on `turn.state`.
+3. ~~**`Turn.state` default**~~ — **DONE** (2026-07-07). `Turn.state` is now
+   `Literal["complete", "cancelled", "error"]`; `ChatState.active_turn` corrected
+   from `str | None` to `dict[str, Any] | None`; chat reducer rewritten to keep
+   in-progress turns in `active_turn` and only move to `turns` on completion.
+   7 tests in `tests/types/test_turn_state.py`. Suite: 231/231.
    → [GAPCONTEXT.md § Turn.state type](./GAPCONTEXT.md#turnstate-type)
 
 4. **`ChatToolCallConfirmedAction` subtype split** — Python uses `approved: bool`

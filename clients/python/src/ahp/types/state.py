@@ -8,7 +8,7 @@ individual sub-fields — expand to typed models as needed.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import Field
 
@@ -86,10 +86,10 @@ class SessionState(AhpModel):
 
 
 class Turn(AhpModel):
-    """A conversation turn in a chat channel (types/channels-chat/state.ts).
+    """A conversation turn in a chat channel (types/channels-chat/state.ts:504-522).
 
-    ``message`` is the user-sent Message; ``response_parts`` accumulates
-    streaming content; ``state`` is the TurnState discriminated union.
+    Only completed turns appear in ChatState.turns; in-progress turns are the
+    separate ActiveTurn type. state is therefore always a terminal value.
     """
 
     id: str
@@ -97,8 +97,8 @@ class Turn(AhpModel):
     message: dict[str, Any] = Field(default_factory=dict)
     response_parts: list[Any] = Field(default_factory=list, alias="responseParts")
     usage: dict[str, Any] | None = None
-    # TurnState is a discriminated union with type: "running"|"complete"|etc.
-    state: dict[str, Any] = Field(default_factory=lambda: {"type": "running"})
+    # TurnState: 'complete' | 'cancelled' | 'error' (types/channels-chat/state.ts:477-481)
+    state: Literal["complete", "cancelled", "error"]
     error: dict[str, Any] | None = None
 
 
@@ -113,7 +113,8 @@ class ChatState(AhpModel):
     modified_at: str | None = Field(default=None, alias="modifiedAt")
     turns: list[Turn] = Field(default_factory=list)
     turns_next_cursor: str | None = Field(default=None, alias="turnsNextCursor")
-    active_turn: str | None = Field(default=None, alias="activeTurn")
+    # activeTurn is an ActiveTurn object on the wire (types/channels-chat/state.ts:529-542)
+    active_turn: dict[str, Any] | None = Field(default=None, alias="activeTurn")
     steering_message: Any | None = Field(default=None, alias="steeringMessage")
     queued_messages: list[Any] | None = Field(default=None, alias="queuedMessages")
     input_requests: list[Any] | None = Field(default=None, alias="inputRequests")

@@ -25,8 +25,11 @@
 - **2026-07-07 (this session): all five GAPANALYSIS.md priorities closed.**
   Suite: 213/213. See SPEC.md v11 and GAPANALYSIS.md for detail.
 - **2026-07-07: `TelemetryCapabilities` closed, `ping` + logging added.**
-  Suite: **220/220**. See SPEC.md v12. `GAPCONTEXT.md` introduced as the
-  standing companion to `GAPANALYSIS.md` (why each gap matters).
+  Suite: 220/220. See SPEC.md v12. `GAPCONTEXT.md` introduced.
+- **2026-07-07: `Turn.state` type fixed + chat reducer architectural correction.**
+  Suite: **231/231**. See SPEC.md v13. `Turn.state` is now
+  `Literal["complete","cancelled","error"]`; in-progress turns live in
+  `ChatState.active_turn` (dict), not `turns`.
 
 ## Repo context
 
@@ -53,19 +56,15 @@ swap), `close`, async context manager, `create_session`/`create_chat`/
 `dispose_terminal`, `list_sessions`, `fetch_turns`, `completions`,
 `invoke_changeset_operation`, `authenticate`, `resource_read`/`resource_write`/
 `resource_list`/`resource_stat`, host→client `resource*` via registered
-`ResourceProvider`. Only `ping` remains unwrapped (low priority).
+`ResourceProvider`, and `ping` (liveness check).
 
 ## What's NOT completed
 
 The mechanically-fixable gaps in `GAPANALYSIS.md` are all done. What remains
 is intentional laxity or depth choices — open when the need arises:
 
-- **`ping` wrapper** — **DONE** (2026-07-07). `AhpClient.ping()` implemented.
 - **`ChatState` missing fields** — `origin`, `interactivity`, `workingDirectory`
   (`types/channels-chat/state.ts:51-69`). Add when needed.
-- **`Turn.state` default value** — defaults to `{"type": "running"}` but TS uses a
-  string enum (`'complete'|'cancelled'|'error'`). Low-impact; only completed turns
-  appear in `ChatState.turns` in practice.
 - **`ChatToolCallConfirmedAction` subtype split** — Python has `approved: bool`
   instead of TS's `Approved | Denied` discriminated union. Fine unless `reason`
   (on denied) or `confirmed` fields are needed.
@@ -73,8 +72,6 @@ is intentional laxity or depth choices — open when the need arises:
   matching customization entries; implement when MCP tools are used.
 - **Chat reducer coverage** — 17 of 24 variants no-op. Fine — canonical TS has no
   `channels-chat/reducer.ts` at all.
-- **Structured logging in reader loop** — currently silently swallows malformed
-  messages. See Gotcha #4 below.
 - **WebSocket library choice** — `websockets>=12.0` pinned in optional extra but the
   transport is library-agnostic. Revisit if needed.
 - **Minimum Python version** — tentatively `>=3.10`, not final.
@@ -89,7 +86,7 @@ is intentional laxity or depth choices — open when the need arises:
 | `ahp.client` | `tests/client/` — 5 files + `_helpers.py` | ~30 tests | |
 | `ahp.hosts` | `tests/hosts/` — 1 file | 11 tests | |
 
-**Full suite: `uv run pytest -v` → 220 passed (2026-07-07).**
+**Full suite: `uv run pytest -v` → 231 passed (2026-07-07).**
 
 ## Gotchas — things that will bite you if you're not careful
 
@@ -167,12 +164,11 @@ All canonical protocol gaps are closed. Remaining work is optional or on-demand:
 
 1. **Integration test against a live AHP host** — verify URI scheme names,
    `create*` round-trips, and reconnect behavior against a real server.
-2. **Structured logging in reader loop** (Gotcha #4) — add before any production use.
-3. **`ping` wrapper** in `AhpClient` — one-liner addition when needed.
-4. **`TelemetryCapabilities` model** — when OTLP telemetry is consumed.
-5. **Packaging** — `python/vX.Y.Z` tag, PyPI, CI/CD (GitHub Actions with OIDC
+2. **`ChatToolCallConfirmedAction` subtype split** — add `reason`/`confirmed` fields
+   when tool-call denial reasons need to be surfaced (see `GAPCONTEXT.md`).
+3. **Packaging** — `python/vX.Y.Z` tag, PyPI, CI/CD (GitHub Actions with OIDC
    Trusted Publishing matching the TS Azure DevOps pattern).
-6. **Finalize open questions** in `SPEC.md §7`: WebSocket library, min Python version.
+4. **Finalize open questions** in `SPEC.md §7`: WebSocket library, min Python version.
 
 ## File map
 

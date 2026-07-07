@@ -58,7 +58,7 @@ pip install -e ".[dev]"
 pytest -v
 ```
 
-As of 2026-07-07 the full suite is **220/220 passing** (`uv run pytest -v`) —
+As of 2026-07-07 the full suite is **231/231 passing** (`uv run pytest -v`) —
 `ahp.client`, `ahp.hosts`, `ahp.types`, `ahp.reducers`, and `ahp.transport`
 are all executed. See `HANDOFF.md`'s "Test coverage" section for detail.
 **Green here means the code matches its own tests, not that it matches the

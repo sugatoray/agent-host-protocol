@@ -165,20 +165,16 @@ async def test_own_action_echoed_back_via_notification_is_not_double_applied():
 
     chat_uri = "ahp-chat:/1"
     client = await initialized_client(client_transport, host_transport)
+    # Snapshot has an in-progress turn in activeTurn (not turns — Turn requires
+    # a terminal state; in-progress turns are ActiveTurn per canonical TS).
     chat_snapshot_result = {
         "snapshot": {
             "resource": chat_uri,
             "fromSeq": 1,
             "state": {
                 "resource": chat_uri,
-                "turns": [
-                    {
-                        "id": "t1",
-                        "message": {},
-                        "responseParts": [],
-                        "state": {"type": "running"},
-                    }
-                ],
+                "turns": [],
+                "activeTurn": {"id": "t1", "message": {}, "responseParts": []},
             },
         }
     }
@@ -219,9 +215,10 @@ async def test_own_action_echoed_back_via_notification_is_not_double_applied():
     await asyncio.sleep(0)
 
     state = client.get_state(chat_uri)
-    # Should have exactly one delta part appended (not two).
+    # Should have exactly one delta part in active_turn (not two — echo skipped).
     assert isinstance(state, ChatState)
-    assert len(state.turns[0].response_parts) == 1
+    assert state.active_turn is not None
+    assert len(state.active_turn["responseParts"]) == 1
 
 
 async def test_foreign_action_notification_is_applied_via_reducer():

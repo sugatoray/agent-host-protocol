@@ -102,52 +102,6 @@ interface ChatState {
 
 ---
 
-## Turn.state type
-
-**GAPANALYSIS.md section**: `chat` → State
-**Priority**: low
-**Status**: open (2026-07-07)
-
-### What is missing
-
-`Turn.state` in `src/ahp/types/state.py` defaults to `{"type": "running"}` (a
-dict). Canonical TS defines `Turn.state` as a string enum with values
-`'complete' | 'cancelled' | 'error'`. In-progress turns are the separate
-`ActiveTurn` type and do not appear in `ChatState.turns` at all.
-
-### Cross-client evidence
-
-| Client     | `Turn.state` type | Location |
-|------------|-------------------|----------|
-| TypeScript | `'complete' \| 'cancelled' \| 'error'` (string) | `types/channels-chat/state.ts:477–481` |
-| Go         | `string` | `clients/go/ahptypes/state.generated.go` |
-| Rust       | `TurnState` enum | `clients/rust/crates/ahp-types/src/state.rs` |
-| Python     | `dict[str, Any]` defaulting to `{"type": "running"}` | `src/ahp/types/state.py` |
-
-### Why it matters
-
-1. Code that reads `turn.state` expecting a string (`if turn.state == "complete"`)
-   will silently never match because `{"type": "running"} == "complete"` is
-   `False` — no exception, wrong behavior.
-2. The `"running"` value doesn't exist in the protocol; in-progress turns are
-   `ActiveTurn` objects, not `Turn` objects. Defaulting to `"running"` implies
-   a turn can be both a completed `Turn` and in-progress, which is wrong.
-3. Low impact in practice because only completed turns appear in `ChatState.turns`
-   — but any future reducer branch that checks `turn.state` will hit this.
-
-### Canonical shape
-
-```typescript
-// types/channels-chat/state.ts:477–481
-type TurnState = 'complete' | 'cancelled' | 'error';
-
-interface Turn {
-  // ...
-  state: TurnState;  // never 'running' — in-progress turns are ActiveTurn
-}
-```
-
----
 
 ## ChatToolCallConfirmedAction subtype split
 
@@ -247,6 +201,46 @@ Full implementation requires modeling `ServerToolsCustomization` shape first
 Entries below were open gaps that have been resolved. Kept for historical
 context — the rationale and cross-client evidence remain valid reference
 material for understanding the protocol shape.
+
+---
+
+## Turn.state type
+
+**GAPANALYSIS.md section**: `chat` → State
+**Priority**: low
+**Status**: closed (2026-07-07)
+**Closed in**: SPEC.md v13 · `tests/types/test_turn_state.py` (7 tests) · suite 231/231
+
+### What was missing
+
+`Turn.state` in `src/ahp/types/state.py` defaulted to `{"type": "running"}` (a dict).
+Canonical TS defines `TurnState` as `'complete' | 'cancelled' | 'error'` — a string
+enum. In-progress turns are the separate `ActiveTurn` type and do not appear in
+`ChatState.turns` at all; `"running"` is not a valid `TurnState` value.
+
+### Cross-client evidence
+
+| Client     | `Turn.state` type | Location |
+|------------|-------------------|----------|
+| TypeScript | `'complete' \| 'cancelled' \| 'error'` (string) | `types/channels-chat/state.ts:477–481` |
+| Go         | `string` | `clients/go/ahptypes/state.generated.go` |
+| Rust       | `TurnState` enum | `clients/rust/crates/ahp-types/src/state.rs` |
+| Python     | **was** `dict` defaulting to `{"type":"running"}` → now `Literal` | `src/ahp/types/state.py` |
+
+### Fix applied
+
+```python
+# state.py
+state: Literal["complete", "cancelled", "error"]  # was dict[str, Any]
+
+# reducers/chat.py — architectural correction:
+# ChatTurnStartedAction → stores in active_turn dict (ActiveTurn shape), not turns
+# ChatDeltaAction       → appends to active_turn["responseParts"]
+# ChatTurnCompleteAction/CancelledAction/ChatErrorAction
+#   → builds Turn(state="complete"|"cancelled"|"error") from active_turn, appends to turns
+
+# ChatState.active_turn type corrected from str | None → dict[str, Any] | None
+```
 
 ---
 

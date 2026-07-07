@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from ahp.types import (
     ChatActivityChangedAction,
     ChatDeltaAction,
@@ -18,54 +16,61 @@ from ahp.types import (
 )
 
 
-def _update_turn(turns: list[Turn], turn_id: str, update: dict[str, Any]) -> list[Turn]:
-    return [t.model_copy(update=update) if t.id == turn_id else t for t in turns]
-
-
 def chat_reducer(state: ChatState, action: StateAction) -> ChatState:
-    """Apply ``action`` to ``state``, returning a new :class:`ChatState`."""
+    """Apply ``action`` to ``state``, returning a new :class:`ChatState`.
+
+    In-progress turns are tracked in ``active_turn`` (an ActiveTurn dict).
+    Only completed turns appear in ``turns``, each with a terminal state string.
+    This matches canonical types/channels-chat/state.ts — Turn.state is always
+    'complete' | 'cancelled' | 'error'; 'running' does not exist on Turn.
+    """
     if isinstance(action, ChatTurnStartedAction):
-        new_turn = Turn(
-            id=action.turn_id,
-            message=action.message,
-            state={"type": "running"},
-        )
-        return state.model_copy(
-            update={"turns": [*state.turns, new_turn], "active_turn": action.turn_id}
-        )
+        active = {"id": action.turn_id, "message": action.message, "responseParts": []}
+        return state.model_copy(update={"active_turn": active})
 
     if isinstance(action, ChatDeltaAction):
-        if not any(t.id == action.turn_id for t in state.turns):
+        if state.active_turn is None or state.active_turn.get("id") != action.turn_id:
             return state
-        new_turns = _update_turn(
-            state.turns,
-            action.turn_id,
-            {"response_parts": [
-                *next(t.response_parts for t in state.turns if t.id == action.turn_id),
-                {"type": "delta", "partId": action.part_id, "content": action.content},
-            ]},
-        )
-        return state.model_copy(update={"turns": new_turns})
+        part = {"type": "delta", "partId": action.part_id, "content": action.content}
+        updated = {
+            **state.active_turn,
+            "responseParts": [*state.active_turn.get("responseParts", []), part],
+        }
+        return state.model_copy(update={"active_turn": updated})
 
     if isinstance(action, ChatTurnCompleteAction):
-        new_turns = _update_turn(
-            state.turns, action.turn_id, {"state": {"type": "complete"}}
+        if state.active_turn is None or state.active_turn.get("id") != action.turn_id:
+            return state
+        turn = Turn(
+            id=state.active_turn["id"],
+            message=state.active_turn.get("message", {}),
+            response_parts=state.active_turn.get("responseParts", []),
+            state="complete",
         )
-        return state.model_copy(update={"turns": new_turns, "active_turn": None})
+        return state.model_copy(update={"turns": [*state.turns, turn], "active_turn": None})
 
     if isinstance(action, ChatTurnCancelledAction):
-        new_turns = _update_turn(
-            state.turns, action.turn_id, {"state": {"type": "cancelled"}}
+        if state.active_turn is None or state.active_turn.get("id") != action.turn_id:
+            return state
+        turn = Turn(
+            id=state.active_turn["id"],
+            message=state.active_turn.get("message", {}),
+            response_parts=state.active_turn.get("responseParts", []),
+            state="cancelled",
         )
-        return state.model_copy(update={"turns": new_turns, "active_turn": None})
+        return state.model_copy(update={"turns": [*state.turns, turn], "active_turn": None})
 
     if isinstance(action, ChatErrorAction):
-        new_turns = _update_turn(
-            state.turns,
-            action.turn_id,
-            {"state": {"type": "error"}, "error": action.error},
+        if state.active_turn is None or state.active_turn.get("id") != action.turn_id:
+            return state
+        turn = Turn(
+            id=state.active_turn["id"],
+            message=state.active_turn.get("message", {}),
+            response_parts=state.active_turn.get("responseParts", []),
+            state="error",
+            error=action.error,
         )
-        return state.model_copy(update={"turns": new_turns, "active_turn": None})
+        return state.model_copy(update={"turns": [*state.turns, turn], "active_turn": None})
 
     if isinstance(action, ChatActivityChangedAction):
         return state.model_copy(update={"activity": action.activity})

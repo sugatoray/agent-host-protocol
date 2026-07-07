@@ -445,6 +445,19 @@ against a real pydantic install (sandbox had no network access to install
     subtype split, `SessionMcpServerStateChangedAction` reducer.
   - `AhpClient.ping()` wrapper added; structured logging (`logging.getLogger(__name__)`)
     added to reader loop (malformed messages, unhandled host requests). Suite: 214/214.
+- v13 (2026-07-07) — closed `Turn.state` type gap via Red/Green TDD.
+  `Turn.state` changed from `dict[str, Any]` (defaulting to `{"type":"running"}`)
+  to `Literal["complete", "cancelled", "error"]`, matching canonical
+  `types/channels-chat/state.ts:477-481` and Go/Rust. Architectural correction
+  to `chat_reducer`: in-progress turns now live in `ChatState.active_turn`
+  (a `dict | None`, matching the wire `ActiveTurn` shape) instead of being placed
+  in `turns` with an invented "running" state. `ChatTurnStartedAction` populates
+  `active_turn`; delta/reasoning actions update it; complete/cancelled/error
+  finalize the turn into `turns` with a terminal state string and clear
+  `active_turn`. `ChatState.active_turn` type corrected from `str | None` to
+  `dict[str, Any] | None`. 7 new tests in `tests/types/test_turn_state.py`;
+  `tests/reducers/test_chat_reducer.py` rewritten (13 tests, up from 9);
+  `tests/client/test_ahp_client.py` snapshot fixture updated. Suite: 231/231.
 - v12 (2026-07-07) — closed `TelemetryCapabilities` gap via Red/Green TDD.
   `TelemetryCapabilities(AhpModel)` added to `src/ahp/types/commands.py` with
   `logs`, `traces`, `metrics` (all `URI | None`), matching canonical
