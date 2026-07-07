@@ -5,6 +5,8 @@ Working memory for Claude sessions picking up work in this directory
 
 ## Read this first, in this order
 
+**[`STARTER.md`](./STARTER.md)** -- READ THIS FIRST and then follow steps as below.
+
 1. **[`HANDOFF.md`](./HANDOFF.md)** — **start here.** What's done, what's not,
    what was actually tested vs. only syntax-checked, known gotchas, and a
    recommended order of work. Written specifically for picking this project
@@ -34,7 +36,7 @@ Working memory for Claude sessions picking up work in this directory
 # Method-1: RECOMMENDED
 cd clients/python
 uv sync
-uv sync --extra websocket --extra dev 
+uv sync --extra websocket --extra dev --extra agent
 # uv sync --extra dev
 # uv sync --extra websocket
 uv run pytest -v

@@ -53,7 +53,7 @@ uv add ahp --extra websocket
 # Method-1: RECOMMENDED
 cd clients/python
 uv sync
-uv sync --extra websocket --extra dev 
+uv sync --extra websocket --extra dev --extra agent
 # uv sync --extra dev
 # uv sync --extra websocket
 uv run pytest -v
