@@ -4,49 +4,95 @@ from __future__ import annotations
 
 from ahp.reducers.terminal import terminal_reducer
 from ahp.types import (
-    SessionDisposedAction,
+    SessionTitleChangedAction,
+    TerminalClearedAction,
+    TerminalCwdChangedAction,
+    TerminalDataAction,
     TerminalExitedAction,
-    TerminalOutputAction,
+    TerminalResizedAction,
     TerminalState,
-    TerminalStatus,
+    TerminalTitleChangedAction,
 )
 
 
 def make_state(**overrides) -> TerminalState:
-    defaults = dict(
-        uri="ahp-terminal:/1",
-        session_uri="ahp-session:/abc",
-        status=TerminalStatus.RUNNING,
-        exit_code=None,
-        buffer="",
-    )
+    defaults: dict = dict(title="", content=[], exit_code=None)
     defaults.update(overrides)
     return TerminalState(**defaults)
 
 
-def test_output_appends_to_buffer():
-    state = make_state(buffer="$ ls\n")
-    action = TerminalOutputAction(data="file1.txt\nfile2.txt\n")
+def test_data_appends_to_content():
+    state = make_state(content=[])
+    action = TerminalDataAction(data="$ ls\n")
 
     new_state = terminal_reducer(state, action)
 
-    assert new_state.buffer == "$ ls\nfile1.txt\nfile2.txt\n"
-    assert state.buffer == "$ ls\n"  # input not mutated
+    assert len(new_state.content) == 1
+    assert new_state.content[0]["data"] == "$ ls\n"
+    assert state.content == []  # input not mutated
 
 
-def test_exited_sets_status_and_exit_code():
-    state = make_state(status=TerminalStatus.RUNNING, exit_code=None)
+def test_exited_sets_exit_code():
+    state = make_state(exit_code=None)
     action = TerminalExitedAction(exit_code=0)
 
     new_state = terminal_reducer(state, action)
 
-    assert new_state.status == TerminalStatus.EXITED
     assert new_state.exit_code == 0
+
+
+def test_exited_exit_code_can_be_none():
+    """exitCode is optional in canonical TS — reducer handles None."""
+    state = make_state(exit_code=None)
+    action = TerminalExitedAction(exit_code=None)
+
+    new_state = terminal_reducer(state, action)
+
+    assert new_state.exit_code is None
+
+
+def test_title_changed():
+    state = make_state(title="")
+    action = TerminalTitleChangedAction(title="bash")
+
+    new_state = terminal_reducer(state, action)
+
+    assert new_state.title == "bash"
+
+
+def test_cwd_changed():
+    state = make_state()
+    action = TerminalCwdChangedAction(cwd="/home/user/projects")
+
+    new_state = terminal_reducer(state, action)
+
+    assert new_state.cwd == "/home/user/projects"
+
+
+def test_resized_updates_cols_rows():
+    state = make_state()
+    action = TerminalResizedAction(cols=120, rows=40)
+
+    new_state = terminal_reducer(state, action)
+
+    assert new_state.cols == 120
+    assert new_state.rows == 40
+
+
+def test_cleared_empties_content():
+    state = make_state(
+        content=[{"type": "data", "data": "foo"}, {"type": "data", "data": "bar"}]
+    )
+    action = TerminalClearedAction()
+
+    new_state = terminal_reducer(state, action)
+
+    assert new_state.content == []
 
 
 def test_reducer_ignores_actions_belonging_to_other_channels():
     state = make_state()
-    foreign_action = SessionDisposedAction()
+    foreign_action = SessionTitleChangedAction(title="other")
 
     new_state = terminal_reducer(state, foreign_action)
 

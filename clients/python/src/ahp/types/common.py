@@ -1,18 +1,11 @@
 """Common wire types shared across the AHP protocol.
 
-These mirror the shapes described in the protocol specification's "Common Types"
-reference page (https://microsoft.github.io/agent-host-protocol/reference/common.html)
-and the equivalent hand-written types in ``ahp-types`` (Rust) / ``ahptypes`` (Go) /
-``@microsoft/agent-host-protocol`` (TypeScript).
-
-NOTE: This is a hand-written first pass, not a codegen output. Field sets should be
-verified/extended against ``schema/*.schema.json`` in the upstream repo as that
-review happens (see SPEC.md open questions).
+Mirrors ``types/common/state.ts`` + ``types/common/actions.ts`` primitives.
 """
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -20,29 +13,13 @@ from pydantic import BaseModel, ConfigDict, Field
 # Primitive aliases
 # ---------------------------------------------------------------------------
 
-# AHP resources, sessions, chats, terminals, etc. are all addressed by URI, e.g.
-# "agenthost:/root", "ahp-session:/<uuid>", "ahp-log://warn".
 URI = str
-
-# Monotonically increasing sequence number the host stamps on every mutation it
-# broadcasts. Used for ordering and for detecting missed messages on reconnect.
 ServerSeq = int
-
-# Monotonically increasing sequence number a single client assigns to its own
-# outgoing actions, used together with ``client_id`` to identify the origin of
-# an action for write-ahead reconciliation.
 ClientSeq = int
 
 
 class AhpModel(BaseModel):
-    """Base class for all AHP wire types.
-
-    - ``populate_by_name`` allows constructing models with either the Python
-      (snake_case) field name or the wire (camelCase) alias.
-    - Unknown fields from the wire are preserved rather than rejected, since the
-      protocol may add optional fields in minor/patch versions and clients
-      should not hard-fail on forward-compatible payloads.
-    """
+    """Base class for all AHP wire types."""
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -51,53 +28,54 @@ class AhpModel(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Actor / origin
+# Protected resource metadata (RFC 9728) — types/common/state.ts
 # ---------------------------------------------------------------------------
 
 
-class ActionOrigin(AhpModel):
-    """Identifies which client produced an action, for write-ahead reconciliation.
+class ProtectedResourceMetadata(AhpModel):
+    """OAuth 2.0 Protected Resource Metadata (RFC 9728), snake_case per the RFC."""
 
-    The client stamps its own outgoing actions with ``(client_id, client_seq)``.
-    When the server echoes the action back (see ``notifications.ActionNotification``),
-    the client matches it against its own optimistically-applied local copy via this
-    origin before treating it as a "foreign" (other-client) mutation.
-    """
-
-    client_id: str = Field(alias="clientId")
-    client_seq: ClientSeq = Field(alias="clientSeq")
+    resource: str
+    resource_name: str | None = None
+    authorization_servers: list[str] | None = None
+    jwks_uri: str | None = None
+    scopes_supported: list[str] | None = None
+    bearer_methods_supported: list[str] | None = None
+    resource_signing_alg_values_supported: list[str] | None = None
+    resource_encryption_alg_values_supported: list[str] | None = None
+    resource_encryption_enc_values_supported: list[str] | None = None
+    resource_documentation: str | None = None
+    resource_policy_uri: str | None = None
+    resource_tos_uri: str | None = None
+    required: bool | None = None
 
 
 # ---------------------------------------------------------------------------
-# Content references (attachments, files, images, etc. referenced from turns)
+# Content reference
 # ---------------------------------------------------------------------------
 
 
 class ContentRef(AhpModel):
-    """A reference to content (e.g. a file, image, or blob) associated with a
-    session/turn, resolved lazily via the ``resource*`` command family rather than
-    inlined into state snapshots.
-    """
+    """Reference to content stored outside the state tree (types/common/state.ts)."""
 
     uri: URI
-    mime_type: str | None = Field(default=None, alias="mimeType")
-    name: str | None = None
-    size: int | None = None
+    size_hint: int | None = Field(default=None, alias="sizeHint")
+    content_type: str | None = Field(default=None, alias="contentType")
+    nonce: str | None = None
 
 
 # ---------------------------------------------------------------------------
-# Error info (distinct from JSON-RPC error envelope, see errors.py)
+# Error info (embedded in state, distinct from JSON-RPC error envelope)
 # ---------------------------------------------------------------------------
 
 
 class ErrorInfo(AhpModel):
-    """Structured error detail embedded in state (e.g. a failed turn), as opposed
-    to a JSON-RPC transport-level error (see ``errors.JsonRpcErrorObject``).
-    """
+    """Structured error embedded in state (types/common/state.ts)."""
 
+    error_type: str = Field(alias="errorType")
     message: str
-    code: str | None = None
-    detail: Any | None = None
+    stack: str | None = None
+    meta: dict[str, Any] | None = Field(default=None, alias="_meta")
 
 
 # ---------------------------------------------------------------------------
@@ -106,33 +84,42 @@ class ErrorInfo(AhpModel):
 
 
 class Snapshot(AhpModel):
-    """A point-in-time, full-state snapshot of a channel, returned by
-    ``initialize``/``subscribe``/``reconnect`` when the client has no (or a stale)
-    local copy and the host decides to resend full state rather than a replay of
-    missed actions.
+    """Point-in-time state snapshot for a channel (types/common/state.ts).
+
+    Field names match the wire: ``resource`` (channel URI) and ``fromSeq``
+    (the serverSeq at which this snapshot was taken).
+    """
+
+    resource: URI
+    from_seq: ServerSeq = Field(alias="fromSeq")
+    state: Any  # narrowed per-channel at call sites
+
+
+# ---------------------------------------------------------------------------
+# Action origin / envelope
+# ---------------------------------------------------------------------------
+
+
+class ActionOrigin(AhpModel):
+    """Identifies the client that dispatched an action (types/common/actions.ts)."""
+
+    client_id: str = Field(alias="clientId")
+    client_seq: ClientSeq = Field(alias="clientSeq")
+
+
+class ActionEnvelope(AhpModel):
+    """Wraps a StateAction with routing + provenance metadata (types/common/actions.ts).
+
+    ``server_seq`` is required (host always stamps actions before broadcast).
+    ``rejection_reason`` is set when the server rejected the action but still
+    echoes it back so the originating client can roll back optimistic state.
     """
 
     channel: URI
     server_seq: ServerSeq = Field(alias="serverSeq")
-    state: Any  # narrowed per-channel by state.py's discriminated per-channel types
-
-
-# ---------------------------------------------------------------------------
-# Action envelope
-# ---------------------------------------------------------------------------
-
-
-class ActionEnvelope(AhpModel):
-    """Wraps a ``StateAction`` (see actions.py) with routing + provenance metadata.
-
-    This is the shape carried by both the client's outgoing ``dispatchAction``
-    command and the server's outgoing ``action`` notification.
-    """
-
-    channel: URI
-    server_seq: ServerSeq | None = Field(default=None, alias="serverSeq")
+    action: dict[str, Any]
     origin: ActionOrigin | None = None
-    action: dict[str, Any]  # replaced by the concrete StateAction union at call sites
+    rejection_reason: str | None = Field(default=None, alias="rejectionReason")
 
 
 # ---------------------------------------------------------------------------
@@ -141,25 +128,14 @@ class ActionEnvelope(AhpModel):
 
 
 class ClientCapabilities(AhpModel):
-    """Capabilities the client advertises during ``initialize``."""
+    """Capabilities the client advertises during ``initialize`` (types/common/commands.ts).
 
-    resources: bool = False
-    """Whether this client can serve `resource*` calls initiated by the server."""
+    Each field is a presence flag — an empty dict {} means "supported".
+    ``mcpApps`` signals the client can render MCP App Views.
+    """
 
-    authentication: bool = False
-    """Whether this client can respond to `auth/required` challenges."""
-
-
-class HostCapabilities(AhpModel):
-    """Capabilities the host advertises back during ``initialize``."""
-
-    channels: list[str] = Field(default_factory=list)
-    """Channel URI schemes this host supports (e.g. session, chat, terminal)."""
-
-    changesets: bool = False
-    completions: bool = False
+    mcp_apps: dict[str, Any] | None = Field(default=None, alias="mcpApps")
 
 
-ProtocolVersion = Literal[1]
-"""Current stable AHP protocol version. Negotiated during `initialize`; a
-major-version mismatch is rejected at handshake per the specification."""
+# ProtocolVersion is a SemVer string (e.g. "0.1.0"), negotiated during initialize.
+ProtocolVersion = str

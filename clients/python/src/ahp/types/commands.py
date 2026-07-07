@@ -1,92 +1,112 @@
-"""AHP command params/result models — the Python equivalent of the upstream
-``CommandMap`` / ``ServerCommandMap`` registries.
+"""AHP command params/result models — reconciled against canonical TS CommandMap.
 
-Each command below is modeled as a ``(Params, Result)`` pair of pydantic models,
-plus a ``COMMANDS`` registry dict keyed by wire method name so
-``ahp.client.AhpClient`` can validate/serialize generically instead of hand-rolling
-each call site.
+Each command is a (Params, Result) pair of pydantic models.
+``COMMANDS`` registry maps wire method name → (Params, Result) for generic
+serialization/validation in ahp.client.AhpClient.
 
-Commands present: ``initialize``, ``ping``, ``reconnect``, ``subscribe``,
-``unsubscribe``, ``dispatchAction``, ``createSession``, ``disposeSession``,
-``listSessions``, ``createChat``, ``disposeChat``, ``createTerminal``,
-``disposeTerminal``, ``fetchTurns``, ``authenticate``, ``completions``,
-``invokeChangesetOperation``, and the ``resource*`` family (``resourceRead``,
-``resourceWrite``, ``resourceList``, ``resourceStat``).
+``dispatchAction`` is NOT in this registry — it is a fire-and-forget notification
+on the wire (no response), handled separately in the client.
 
-The ``resource*`` family is symmetric: the *host* can also invoke these against
-the *client* (a client may be asked to read a local file, for instance). They are
-modeled once here and reused for both directions; which direction is live in a
-given exchange is a transport/client concern, not a typing concern.
-
-PROVISIONAL: params/result field sets are a representative first pass; verify
-against ``docs/specification`` command reference tables as that review happens.
+Canonical sources:
+  - types/common/commands.ts
+  - types/channels-session/commands.ts
 """
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any, Literal, Union
 
 from pydantic import Field
 
 from .common import (
     URI,
+    ActionEnvelope,
     AhpModel,
     ClientCapabilities,
-    ContentRef,
-    HostCapabilities,
     ProtocolVersion,
     ServerSeq,
     Snapshot,
 )
-from .state import AgentInfo, ChangesetOperationStatus, Turn
+
+# ---------------------------------------------------------------------------
+# Base
+# ---------------------------------------------------------------------------
+
+
+class BaseParams(AhpModel):
+    channel: URI = "ahp-root://"
+
 
 # ---------------------------------------------------------------------------
 # initialize
 # ---------------------------------------------------------------------------
 
 
-class InitializeParams(AhpModel):
-    protocol_version: ProtocolVersion = Field(alias="protocolVersion")
-    client_name: str = Field(alias="clientName")
-    client_version: str = Field(alias="clientVersion")
-    capabilities: ClientCapabilities = Field(default_factory=ClientCapabilities)
+class InitializeParams(BaseParams):
+    """types/common/commands.ts InitializeParams.
+
+    The client generates its own ``clientId`` UUID before calling initialize.
+    """
+
+    channel: URI = "ahp-root://"
+    protocol_versions: list[ProtocolVersion] = Field(alias="protocolVersions")
+    client_id: str = Field(alias="clientId")
+    initial_subscriptions: list[URI] | None = Field(default=None, alias="initialSubscriptions")
+    locale: str | None = None
+    capabilities: ClientCapabilities | None = None
 
 
 class InitializeResult(AhpModel):
     protocol_version: ProtocolVersion = Field(alias="protocolVersion")
-    client_id: str = Field(alias="clientId")
-    capabilities: HostCapabilities = Field(default_factory=HostCapabilities)
-    root_snapshot: Snapshot = Field(alias="rootSnapshot")
+    server_seq: ServerSeq = Field(alias="serverSeq")
+    snapshots: list[Snapshot] = Field(default_factory=list)
+    default_directory: str | None = Field(default=None, alias="defaultDirectory")
+    completion_trigger_characters: list[str] | None = Field(
+        default=None, alias="completionTriggerCharacters"
+    )
+    telemetry: dict[str, Any] | None = None
 
 
 # ---------------------------------------------------------------------------
-# ping / reconnect
+# ping
 # ---------------------------------------------------------------------------
 
 
-class PingParams(AhpModel):
-    pass
+class PingParams(BaseParams):
+    channel: URI = "ahp-root://"
 
 
 class PingResult(AhpModel):
     pass
 
 
+# ---------------------------------------------------------------------------
+# reconnect
+# ---------------------------------------------------------------------------
+
+
 class ReconnectParams(AhpModel):
+    channel: URI
     client_id: str = Field(alias="clientId")
-    last_seen_server_seq: dict[URI, ServerSeq] = Field(
-        default_factory=dict, alias="lastSeenServerSeq"
-    )
-    """Per-channel last-seen sequence, so the host can decide replay vs.
-    resnapshot independently for each subscribed channel."""
+    last_seen_server_seq: ServerSeq = Field(alias="lastSeenServerSeq")
+    subscriptions: list[URI] = Field(default_factory=list)
 
 
-class ReconnectResult(AhpModel):
-    replayed: list[URI] = Field(default_factory=list)
-    """Channels the host replayed missed actions for (no snapshot needed)."""
+class ReconnectReplayResult(AhpModel):
+    type: Literal["replay"] = "replay"
+    actions: list[ActionEnvelope] = Field(default_factory=list)
+    missing: list[URI] = Field(default_factory=list)
 
-    resnapshotted: list[Snapshot] = Field(default_factory=list)
-    """Channels the host decided to resend a full snapshot for instead."""
+
+class ReconnectSnapshotResult(AhpModel):
+    type: Literal["snapshot"] = "snapshot"
+    snapshots: list[Snapshot] = Field(default_factory=list)
+
+
+ReconnectResult = Annotated[
+    Union[ReconnectReplayResult, ReconnectSnapshotResult],
+    Field(discriminator="type"),
+]
 
 
 # ---------------------------------------------------------------------------
@@ -96,10 +116,12 @@ class ReconnectResult(AhpModel):
 
 class SubscribeParams(AhpModel):
     channel: URI
+    delivery: str | None = None  # 'snapshot' | 'actions' | 'none'
+    view: dict[str, Any] | None = None
 
 
 class SubscribeResult(AhpModel):
-    snapshot: Snapshot
+    snapshot: Snapshot | None = None
 
 
 class UnsubscribeParams(AhpModel):
@@ -111,7 +133,8 @@ class UnsubscribeResult(AhpModel):
 
 
 # ---------------------------------------------------------------------------
-# dispatchAction
+# dispatchAction  — fire-and-forget notification, NOT a command
+# Params shape kept here for client-side serialization; no Result model.
 # ---------------------------------------------------------------------------
 
 
@@ -119,43 +142,41 @@ class DispatchActionParams(AhpModel):
     channel: URI
     client_seq: int = Field(alias="clientSeq")
     action: dict[str, Any]
-    """Loosely typed here; callers should validate against
-    ``ahp.types.actions.StateAction`` before/after this boundary."""
-
-
-class DispatchActionResult(AhpModel):
-    server_seq: ServerSeq = Field(alias="serverSeq")
 
 
 # ---------------------------------------------------------------------------
-# Session lifecycle
+# Session lifecycle — types/channels-session/commands.ts
 # ---------------------------------------------------------------------------
 
 
 class CreateSessionParams(AhpModel):
-    agent: AgentInfo | None = None
-    title: str | None = None
+    channel: URI
+    provider: str | None = None
+    working_directory: str | None = Field(default=None, alias="workingDirectory")
+    fork: dict[str, Any] | None = None
+    config: dict[str, Any] | None = None
+    active_client: dict[str, Any] | None = Field(default=None, alias="activeClient")
+    progress_token: str | int | None = Field(default=None, alias="progressToken")
 
 
 class CreateSessionResult(AhpModel):
-    session_uri: URI = Field(alias="sessionUri")
-    snapshot: Snapshot
+    session: URI
 
 
-class DisposeSessionParams(AhpModel):
-    session_uri: URI = Field(alias="sessionUri")
+class DisposeSessionParams(BaseParams):
+    channel: URI  # session channel URI
 
 
 class DisposeSessionResult(AhpModel):
     pass
 
 
-class ListSessionsParams(AhpModel):
-    pass
+class ListSessionsParams(BaseParams):
+    channel: URI = "ahp-root://"
 
 
 class ListSessionsResult(AhpModel):
-    session_uris: list[URI] = Field(default_factory=list, alias="sessionUris")
+    sessions: list[dict[str, Any]] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -164,16 +185,17 @@ class ListSessionsResult(AhpModel):
 
 
 class CreateChatParams(AhpModel):
-    session_uri: URI = Field(alias="sessionUri")
+    channel: URI  # session channel URI
+    title: str | None = None
+    config: dict[str, Any] | None = None
 
 
 class CreateChatResult(AhpModel):
-    chat_uri: URI = Field(alias="chatUri")
-    snapshot: Snapshot
+    chat: URI
 
 
 class DisposeChatParams(AhpModel):
-    chat_uri: URI = Field(alias="chatUri")
+    channel: URI  # chat channel URI
 
 
 class DisposeChatResult(AhpModel):
@@ -181,14 +203,15 @@ class DisposeChatResult(AhpModel):
 
 
 class FetchTurnsParams(AhpModel):
-    chat_uri: URI = Field(alias="chatUri")
-    before_turn_id: str | None = Field(default=None, alias="beforeTurnId")
-    limit: int = 50
+    """types/channels-session/commands.ts FetchTurnsParams."""
+
+    channel: URI  # chat channel URI
+    cursor: str | None = None
 
 
 class FetchTurnsResult(AhpModel):
-    turns: list[Turn] = Field(default_factory=list)
-    has_more: bool = Field(default=False, alias="hasMore")
+    turns: list[Any] = Field(default_factory=list)  # list[Turn]
+    next_cursor: str | None = Field(default=None, alias="nextCursor")
 
 
 # ---------------------------------------------------------------------------
@@ -197,18 +220,19 @@ class FetchTurnsResult(AhpModel):
 
 
 class CreateTerminalParams(AhpModel):
-    session_uri: URI = Field(alias="sessionUri")
+    channel: URI  # session channel URI
     shell: str | None = None
     cwd: str | None = None
+    cols: int | None = None
+    rows: int | None = None
 
 
 class CreateTerminalResult(AhpModel):
-    terminal_uri: URI = Field(alias="terminalUri")
-    snapshot: Snapshot
+    terminal: URI
 
 
 class DisposeTerminalParams(AhpModel):
-    terminal_uri: URI = Field(alias="terminalUri")
+    channel: URI  # terminal channel URI
 
 
 class DisposeTerminalResult(AhpModel):
@@ -216,32 +240,48 @@ class DisposeTerminalResult(AhpModel):
 
 
 # ---------------------------------------------------------------------------
-# Authentication
+# Authentication — types/common/commands.ts
 # ---------------------------------------------------------------------------
 
 
-class AuthenticateParams(AhpModel):
-    scheme: str
-    credentials: dict[str, Any] = Field(default_factory=dict)
+class AuthenticateParams(BaseParams):
+    channel: URI = "ahp-root://"
+    resource: str  # protected resource URI
+    token: str
 
 
 class AuthenticateResult(AhpModel):
-    authenticated: bool
+    pass
 
 
 # ---------------------------------------------------------------------------
-# Completions
+# Completions — types/channels-session/commands.ts
 # ---------------------------------------------------------------------------
 
 
 class CompletionsParams(AhpModel):
-    session_uri: URI = Field(alias="sessionUri")
-    prefix: str
-    kind: str | None = None
+    kind: str  # 'provider' | 'model' | 'customization' | ...
+    channel: URI
+    text: str
+    offset: int
 
 
 class CompletionsResult(AhpModel):
-    items: list[str] = Field(default_factory=list)
+    items: list[Any] = Field(default_factory=list)  # list[CompletionItem]
+
+
+# ---------------------------------------------------------------------------
+# Session config
+# ---------------------------------------------------------------------------
+
+
+class ResolveSessionConfigParams(AhpModel):
+    channel: URI  # session channel URI
+    config: dict[str, Any]
+
+
+class ResolveSessionConfigResult(AhpModel):
+    config: dict[str, Any]
 
 
 # ---------------------------------------------------------------------------
@@ -250,34 +290,42 @@ class CompletionsResult(AhpModel):
 
 
 class InvokeChangesetOperationParams(AhpModel):
-    changeset_uri: URI = Field(alias="changesetUri")
+    channel: URI  # changeset channel URI
     operation: str
     args: dict[str, Any] = Field(default_factory=dict)
 
 
 class InvokeChangesetOperationResult(AhpModel):
-    status: ChangesetOperationStatus
+    status: str  # ChangesetOperationStatus string
 
 
 # ---------------------------------------------------------------------------
-# Resource family (symmetric: host->client or client->host)
+# Resource family — types/common/commands.ts
 # ---------------------------------------------------------------------------
 
 
 class ResourceReadParams(AhpModel):
+    channel: URI = "ahp-root://"
     uri: URI
+    encoding: str | None = None  # 'base64' | 'utf-8'
 
 
 class ResourceReadResult(AhpModel):
-    content_ref: ContentRef = Field(alias="contentRef")
     data: str
-    """Base64-encoded bytes, or raw text for text mime types — mirrors the
-    binary/text split used by ``resource*`` calls elsewhere in the protocol."""
+    encoding: str
+    content_type: str | None = Field(default=None, alias="contentType")
 
 
 class ResourceWriteParams(AhpModel):
+    channel: URI = "ahp-root://"
     uri: URI
     data: str
+    encoding: str
+    content_type: str | None = Field(default=None, alias="contentType")
+    create_only: bool | None = Field(default=None, alias="createOnly")
+    mode: str | None = None  # 'overwrite' | 'append' | ...
+    position: int | None = None
+    if_match: str | None = Field(default=None, alias="ifMatch")
 
 
 class ResourceWriteResult(AhpModel):
@@ -285,33 +333,79 @@ class ResourceWriteResult(AhpModel):
 
 
 class ResourceListParams(AhpModel):
+    channel: URI
     uri: URI
 
 
 class ResourceListResult(AhpModel):
-    entries: list[ContentRef] = Field(default_factory=list)
+    entries: list[dict[str, Any]] = Field(default_factory=list)
 
 
-class ResourceStatParams(AhpModel):
+class ResourceCopyParams(AhpModel):
+    source: URI
+    destination: URI
+    fail_if_exists: bool | None = Field(default=None, alias="failIfExists")
+
+
+class ResourceCopyResult(AhpModel):
+    pass
+
+
+class ResourceDeleteParams(AhpModel):
+    uri: URI
+    recursive: bool | None = None
+
+
+class ResourceDeleteResult(AhpModel):
+    pass
+
+
+class ResourceRequestParams(AhpModel):
+    uri: URI
+    read: bool | None = None
+    write: bool | None = None
+
+
+class ResourceRequestResult(AhpModel):
+    pass
+
+
+class ResourceMoveParams(AhpModel):
+    source: URI
+    destination: URI
+
+
+class ResourceMoveResult(AhpModel):
+    pass
+
+
+class ResourceResolveParams(AhpModel):
+    uri: URI
+    follow_symlinks: bool | None = Field(default=None, alias="followSymlinks")
+
+
+class ResourceResolveResult(AhpModel):
     uri: URI
 
 
-class ResourceStatResult(AhpModel):
-    content_ref: ContentRef = Field(alias="contentRef")
-    exists: bool
+class ResourceMkdirParams(AhpModel):
+    uri: URI
+
+
+class ResourceMkdirResult(AhpModel):
+    pass
 
 
 # ---------------------------------------------------------------------------
-# Registry
+# Registry  (dispatchAction excluded — fire-and-forget)
 # ---------------------------------------------------------------------------
 
 COMMANDS: dict[str, tuple[type[AhpModel], type[AhpModel]]] = {
     "initialize": (InitializeParams, InitializeResult),
     "ping": (PingParams, PingResult),
-    "reconnect": (ReconnectParams, ReconnectResult),
+    "reconnect": (ReconnectParams, AhpModel),  # result parsed as union at call site
     "subscribe": (SubscribeParams, SubscribeResult),
     "unsubscribe": (UnsubscribeParams, UnsubscribeResult),
-    "dispatchAction": (DispatchActionParams, DispatchActionResult),
     "createSession": (CreateSessionParams, CreateSessionResult),
     "disposeSession": (DisposeSessionParams, DisposeSessionResult),
     "listSessions": (ListSessionsParams, ListSessionsResult),
@@ -322,14 +416,15 @@ COMMANDS: dict[str, tuple[type[AhpModel], type[AhpModel]]] = {
     "disposeTerminal": (DisposeTerminalParams, DisposeTerminalResult),
     "authenticate": (AuthenticateParams, AuthenticateResult),
     "completions": (CompletionsParams, CompletionsResult),
-    "invokeChangesetOperation": (
-        InvokeChangesetOperationParams,
-        InvokeChangesetOperationResult,
-    ),
+    "resolveSessionConfig": (ResolveSessionConfigParams, ResolveSessionConfigResult),
+    "invokeChangesetOperation": (InvokeChangesetOperationParams, InvokeChangesetOperationResult),
     "resourceRead": (ResourceReadParams, ResourceReadResult),
     "resourceWrite": (ResourceWriteParams, ResourceWriteResult),
     "resourceList": (ResourceListParams, ResourceListResult),
-    "resourceStat": (ResourceStatParams, ResourceStatResult),
+    "resourceCopy": (ResourceCopyParams, ResourceCopyResult),
+    "resourceDelete": (ResourceDeleteParams, ResourceDeleteResult),
+    "resourceRequest": (ResourceRequestParams, ResourceRequestResult),
+    "resourceMove": (ResourceMoveParams, ResourceMoveResult),
+    "resourceResolve": (ResourceResolveParams, ResourceResolveResult),
+    "resourceMkdir": (ResourceMkdirParams, ResourceMkdirResult),
 }
-"""Wire method name -> (Params model, Result model). Used by AhpClient to
-validate outgoing params and parse incoming results generically."""

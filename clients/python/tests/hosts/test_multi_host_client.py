@@ -22,20 +22,20 @@ from ahp.transport.memory import InMemoryTransport
 from ahp.types import RootState, SessionTitleChangedAction
 
 
-def root_snapshot(session_uris: list[str] | None = None) -> dict:
+def root_snapshot() -> dict:
     return {
-        "channel": "agenthost:/root",
-        "serverSeq": 1,
-        "state": {"agents": [], "activeSessions": 0, "sessionUris": session_uris or []},
+        "resource": "ahp-root://",
+        "fromSeq": 1,
+        "state": {"agents": [], "activeSessions": 0},
     }
 
 
 def initialize_result(client_id: str) -> dict:
+    # client_id param kept for compat but ignored; client generates its own.
     return {
-        "protocolVersion": 1,
-        "clientId": client_id,
-        "capabilities": {"channels": ["session"], "changesets": False, "completions": False},
-        "rootSnapshot": root_snapshot(),
+        "protocolVersion": "0.1.0",
+        "serverSeq": 1,
+        "snapshots": [root_snapshot()],
     }
 
 
@@ -59,14 +59,14 @@ async def subscribed_session_client(client_transport, host_transport, client_id:
     client = await initialized_client(client_transport, host_transport, client_id)
     snapshot_result = {
         "snapshot": {
-            "channel": uri,
-            "serverSeq": 1,
+            "resource": uri,
+            "fromSeq": 1,
             "state": {
-                "uri": uri,
+                "provider": "",
                 "title": "Untitled",
-                "chatUris": [],
-                "terminalUris": [],
-                "disposed": False,
+                "lifecycle": "ready",
+                "activeClients": [],
+                "chats": [],
             },
         }
     }
@@ -164,8 +164,9 @@ async def test_initialize_all_initializes_every_host_concurrently():
 
     assert set(results.keys()) == {"host-a", "host-b"}
     assert isinstance(results["host-a"], RootState)
-    assert multi.client_for("host-a").client_id == "client-a"
-    assert multi.client_for("host-b").client_id == "client-b"
+    # Client generates its own UUID; just verify it's a non-empty string.
+    assert isinstance(multi.client_for("host-a").client_id, str)
+    assert len(multi.client_for("host-a").client_id) > 0
 
 
 async def test_get_state_and_dispatch_action_are_isolated_per_host():
@@ -176,14 +177,10 @@ async def test_get_state_and_dispatch_action_are_isolated_per_host():
     client_b = await subscribed_session_client(ct_b, ht_b, "client-b", "ahp-session:/abc")
     multi = MultiHostClient({"host-a": client_a, "host-b": client_b})
 
-    dispatch_task = asyncio.create_task(
-        multi.dispatch_action("host-a", "ahp-session:/abc", SessionTitleChangedAction(title="Renamed on A"))
-    )
-    await asyncio.sleep(0)
-    await asyncio.sleep(0)
-    request = json.loads(await ht_a.receive())
-    await ht_a.send(json.dumps({"jsonrpc": "2.0", "id": request["id"], "result": {"serverSeq": 2}}))
-    await dispatch_task
+    # dispatch_action is fire-and-forget: no id, no response.
+    await multi.dispatch_action("host-a", "ahp-session:/abc", SessionTitleChangedAction(title="Renamed on A"))
+    # Drain the notification from the wire (but don't send a response).
+    await ht_a.receive()
 
     assert multi.get_state("host-a", "ahp-session:/abc").title == "Renamed on A"
     # Host B's identically-URI'd session must be completely unaffected.

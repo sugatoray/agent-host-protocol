@@ -1,85 +1,80 @@
-"""Tests for ahp.reducers.root.root_reducer.
-
-TDD note: this file is written before ``ahp/reducers/root.py`` exists (or before
-it handles these cases), per the Red/Green TDD workflow requested for this
-package. Running `pytest tests/reducers/test_root_reducer.py` right now should
-fail with an ImportError / AttributeError until `ahp.reducers.root` is
-implemented to satisfy it.
-"""
+"""Tests for ahp.reducers.root.root_reducer."""
 
 from __future__ import annotations
 
 from ahp.reducers.root import root_reducer
 from ahp.types import (
     AgentInfo,
+    RootActiveSessionsChangedAction,
     RootAgentsChangedAction,
-    RootSessionAddedAction,
-    RootSessionRemovedAction,
+    RootConfigChangedAction,
     RootState,
-    TerminalOutputAction,
+    RootTerminalsChangedAction,
+    SessionTitleChangedAction,
 )
 
 
 def make_state(**overrides) -> RootState:
-    defaults = dict(agents=[], active_sessions=0, session_uris=[])
+    defaults: dict = dict(agents=[], active_sessions=None)
     defaults.update(overrides)
     return RootState(**defaults)
 
 
 def test_agents_changed_replaces_agent_list():
-    state = make_state(agents=[AgentInfo(provider="old")])
-    action = RootAgentsChangedAction(agents=[AgentInfo(provider="copilot", id="a1")])
+    state = make_state(agents=[AgentInfo(provider="old", display_name="Old")])
+    action = RootAgentsChangedAction(
+        agents=[{"provider": "copilot", "displayName": "Copilot", "description": ""}]
+    )
 
     new_state = root_reducer(state, action)
 
-    assert [a.provider for a in new_state.agents] == ["copilot"]
+    assert len(new_state.agents) == 1
     # reducer must not mutate the input state in place
     assert state.agents[0].provider == "old"
 
 
-def test_session_added_appends_new_uri():
-    state = make_state(session_uris=["ahp-session:/existing"])
-    action = RootSessionAddedAction(session_uri="ahp-session:/new")
+def test_active_sessions_changed():
+    state = make_state(active_sessions=None)
+    action = RootActiveSessionsChangedAction(active_sessions=3)
 
     new_state = root_reducer(state, action)
 
-    assert new_state.session_uris == ["ahp-session:/existing", "ahp-session:/new"]
+    assert new_state.active_sessions == 3
+    assert state.active_sessions is None
 
 
-def test_session_added_is_idempotent_for_duplicate_uri():
-    state = make_state(session_uris=["ahp-session:/dup"])
-    action = RootSessionAddedAction(session_uri="ahp-session:/dup")
-
-    new_state = root_reducer(state, action)
-
-    assert new_state.session_uris == ["ahp-session:/dup"]
-
-
-def test_session_removed_drops_matching_uri():
-    state = make_state(session_uris=["ahp-session:/a", "ahp-session:/b"])
-    action = RootSessionRemovedAction(session_uri="ahp-session:/a")
+def test_terminals_changed_replaces_terminals():
+    state = make_state()
+    action = RootTerminalsChangedAction(terminals=[{"id": "t1"}, {"id": "t2"}])
 
     new_state = root_reducer(state, action)
 
-    assert new_state.session_uris == ["ahp-session:/b"]
+    assert len(new_state.terminals) == 2
 
 
-def test_session_removed_is_a_noop_for_unknown_uri():
-    state = make_state(session_uris=["ahp-session:/a"])
-    action = RootSessionRemovedAction(session_uri="ahp-session:/does-not-exist")
+def test_config_changed_merges_by_default():
+    state = make_state()
+    state = state.model_copy(update={"config": {"a": 1}})
+    action = RootConfigChangedAction(config={"b": 2})
 
     new_state = root_reducer(state, action)
 
-    assert new_state.session_uris == ["ahp-session:/a"]
+    assert new_state.config == {"a": 1, "b": 2}
+
+
+def test_config_changed_replace_overwrites():
+    state = make_state()
+    state = state.model_copy(update={"config": {"a": 1, "c": 3}})
+    action = RootConfigChangedAction(config={"b": 2}, replace=True)
+
+    new_state = root_reducer(state, action)
+
+    assert new_state.config == {"b": 2}
 
 
 def test_reducer_ignores_actions_belonging_to_other_channels():
-    """The root channel only ever receives root/* actions in practice (the client
-    routes by channel), but the reducer itself must be defensive: an
-    out-of-family action should be a strict no-op rather than raising.
-    """
-    state = make_state(session_uris=["ahp-session:/a"])
-    foreign_action = TerminalOutputAction(data="ls -la\n")
+    state = make_state()
+    foreign_action = SessionTitleChangedAction(title="other channel")
 
     new_state = root_reducer(state, foreign_action)
 
