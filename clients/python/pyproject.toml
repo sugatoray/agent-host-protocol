@@ -3,26 +3,34 @@
 # build-backend = "hatchling.build"
 [build-system]
 requires = [
-    "setuptools>=61.0",
+    "setuptools>=77.0.0",
     #"setuptools_scm>=7.0.0",
     "wheel>=0.36.2",
 ]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["ahp*"]
+namespaces = false
+
+[tool.setuptools]
+include-package-data = true
+
 [project]
 name = "ahp" ## ahp: "agent-host-protocol"
-version = "0.1.0.dev3"
+version = "0.1.0.dev5"
 description = "Python client for the Agent Host Protocol (AHP)"
 # readme = "README.md"
 readme = {file = "README.md", content-type = "text/markdown"}
 # requires-python = ">=3.10"
-requires-python =  ">=3.12,<3.15"
-license = { text = "MIT" }
+requires-python =  ">=3.10,<3.15"
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [{ name = "Microsoft Corporation" }]
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
@@ -31,6 +39,7 @@ classifiers = [
 ]
 dependencies = [
     "pydantic>=2.0,<3.0",
+    "uv>=0.11.26",
 ]
 
 [project.optional-dependencies]
@@ -39,6 +48,7 @@ websocket = [
 ]
 dev = [
     "pytest>=8.0",
+    "pytest-cov>=4.0.0",
     "pytest-asyncio>=0.23",
     "mypy>=1.8",
     "ruff>=0.4",
@@ -46,18 +56,34 @@ dev = [
 agent = [
     "headroom-ai[all]",
 ]
+## TODO: all dependencies
+## Does not work yet. Temporarily commented out.
+## Refer to the strategy adopted by headroom-ai.
+## - source: https://github.com/headroomlabs-ai/headroom/blob/a7721b2f3880669b7309a0ff8e4a3f108662b5ed/pyproject.toml#L288-L290
+# all = [
+#     "adp[websockets,dev,agent]",
+# ]
 
 [project.urls]
 Homepage = "https://github.com/microsoft/agent-host-protocol"
 Documentation = "https://microsoft.github.io/agent-host-protocol/"
 Repository = "https://github.com/microsoft/agent-host-protocol"
 
-[tool.hatch.build.targets.wheel]
-packages = ["src/ahp"]
+[[tool.uv.index]]
+name = "pypi"
+url = "https://pypi.org/simple/"
+default = true
+
+# [tool.hatch.build.targets.wheel]
+# packages = ["src/ahp"]
 
 [tool.mypy]
 python_version = "3.12"
 strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+ignore_missing_imports = true
 
 [tool.uv]
 #########################################################################################
@@ -68,6 +94,7 @@ strict = true
 ## source:
 ## - https://stackoverflow.com/a/79874496/8474894
 ## - https://simonwillison.net/2024/May/10/uv-pip-install-exclude-newer/
+## - https://docs.astral.sh/uv/reference/settings/#exclude-newer
 ##
 ## Either set it globally for all uv commands or use it on a per-command basis.
 ## $ uv lock --exclude-newer "7 days"
@@ -77,12 +104,8 @@ strict = true
 ## Allow this specific package to be newer
 # exclude-newer-package = { "some-package" = "0 days" }
 #########################################################################################
-exclude-newer = "5 days"
+exclude-newer = "P5D" ## "5 Days": does not work; "P5D" works;
 
-[tool.pytest.ini_options]
-# Configuration for specific tools
-testpaths = ["tests"]
-asyncio_mode = "auto"
 
 [tool.ruff]
 # Configuration for specific tools
@@ -123,4 +146,39 @@ ignore = [
     # "B027",  # Do not use the 'raise' statement without specifying an exception
     # "B028",  # Do not use the 'import' statement inside a function
     # "B029",  # Do not use the 'from' import statement inside a function
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.pytest.ini_options]
+# Configuration for specific tools
+testpaths = ["tests"]
+asyncio_mode = "auto"
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+filterwarnings = [
+    # pyo3 Unsendable parsers emit an unraisable warning when GC drops them on a
+    # test-teardown thread; this is a test-harness artifact, not a production issue
+    # (production threads are long-lived and drop their parsers on themselves).
+    "ignore::pytest.PytestUnraisableExceptionWarning",
+]
+
+[tool.coverage.run]
+source = ["ahp"]
+branch = true
+omit = [
+    "src/ahp/cli.py",
+    "*/tests/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
 ]
