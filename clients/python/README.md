@@ -13,21 +13,21 @@ Python client for the [Agent Host Protocol](https://microsoft.github.io/agent-ho
 
 ```
 src/ahp/
-├── __init__.py        # re-exports AhpClient, MultiHostClient, etc.
-├── types/              # wire types (pydantic v2)
-│   ├── common.py        # URI, Snapshot, ActionEnvelope, ActionOrigin, ContentRef, capabilities
-│   ├── errors.py         # AhpError, JSON-RPC + AHP error codes
-│   ├── jsonrpc.py         # JsonRpcRequest/Response/Notification envelope
-│   ├── state.py            # RootState, SessionState, ChatState, TerminalState, ChangesetState, AnnotationsState
-│   ├── actions.py           # StateAction discriminated union (seed set, extension pattern documented)
-│   ├── commands.py           # CommandMap-equivalent: params/result models per JSON-RPC method
-│   └── notifications.py       # Server->client notification payloads (action, auth/required, etc.)
-├── reducers/            # pure (state, action) -> new_state, one per channel family
-├── transport/            # Transport protocol, InMemoryTransport (testing), WebSocketTransport
-├── client.py               # AhpClient: initialize/subscribe/dispatch_action/reconnect/
-│                             authenticate/resource_*, + ResourceProvider for the host-initiated
-│                             resource* direction
-└── hosts.py                # MultiHostClient: fan-out registry over N AhpClient instances
+├── __init__.py                  # re-exports AhpClient, MultiHostClient, etc.
+├── types/                       # wire types (pydantic v2)
+│   ├── common.py                # URI, Snapshot, ActionEnvelope, ActionOrigin, ContentRef, capabilities
+│   ├── errors.py                # AhpError, JSON-RPC + AHP error codes
+│   ├── jsonrpc.py               # JsonRpcRequest/Response/Notification envelope
+│   ├── state.py                 # RootState, SessionState, ChatState, TerminalState, ChangesetState, AnnotationsState
+│   ├── actions.py               # StateAction discriminated union (seed set, extension pattern documented)
+│   ├── commands.py              # CommandMap-equivalent: params/result models per JSON-RPC method
+│   └── notifications.py         # Server->client notification payloads (action, auth/required, etc.)
+├── reducers/                    # pure (state, action) -> new_state, one per channel family
+├── transport/                   # Transport protocol, InMemoryTransport (testing), WebSocketTransport
+├── client.py                    # AhpClient: initialize/subscribe/dispatch_action/reconnect/
+│                                  authenticate/resource_*, + ResourceProvider for the host-initiated
+│                                  resource* direction
+└── hosts.py                     # MultiHostClient: fan-out registry over N AhpClient instances
 ```
 
 Not yet implemented: `unsubscribe()`. See `.scrolls/SPEC.md` §6 for the full build order
