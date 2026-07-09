@@ -47,6 +47,15 @@ uv add ahp --extra websocket
 
 ## Local development
 
+Activate local python environment as:
+
+```bash
+# run this from inside folder: clients/python/
+. .venv/bin/activate
+```
+
+### Setup Local Development Environment
+
 **With `uv`**:
 
 ```bash
@@ -56,6 +65,7 @@ uv sync
 uv sync --extra websocket --extra dev --extra agent
 # uv sync --extra dev
 # uv sync --extra websocket
+# uv sync --extra agent
 uv run pytest -v
 ```
 
@@ -71,6 +81,18 @@ pytest -v
 **If you run nothing else, run this first.** `ahp.types`, `ahp.reducers`, and
 `ahp.transport` were verified for real during development; `ahp.client` and
 `ahp.hosts` were only syntax-checked (`py_compile`) — see `SPEC.md` §7a.
+
+## Occasoanlly Running PyTest Coverage
+
+As running the following (pytest + coverage) is slower than just running pytest, this should only be run sparingly. Regular Red/Green TDD should only use pytest alone (with coverage).
+
+```bash
+cd clients/python # if not in that directory already
+# generate pytest-coverage report as an html file
+uv run pytest --cov=ahp --cov-report=term-missing --cov-report=html
+```
+
+> NOTE: Once the above command is run, the output is saved as an html file inside `clients/python/htmlcov/` folder.
 
 ## Quick start
 
