@@ -1,13 +1,6 @@
 """Tests for ahp.client.AhpClient.
 
-These drive a real ``AhpClient`` against one end of an ``InMemoryTransport``
-pair, with a small scripted "fake host" coroutine on the other end that reads
-raw JSON-RPC requests and replies by hand. This lets us test the client's
-wire behavior (params sent, sequencing, reconciliation) without a real AHP
-host or the ``websockets`` dependency.
-
-TDD note: written before ``ahp/client.py`` exists. Every test here should fail
-at collection (ImportError) until the client module is implemented.
+Drives AhpClient against InMemoryTransport with a scripted fake host.
 """
 
 from __future__ import annotations
@@ -21,14 +14,11 @@ from ahp.client import AhpClient, AhpClientError
 from ahp.transport.memory import InMemoryTransport
 from ahp.types import (
     AhpError,
+    ChatDeltaAction,
     ChatState,
-    ChatTurnDeltaAction,
     ChatTurnStartedAction,
-    RootSessionAddedAction,
     SessionState,
     SessionTitleChangedAction,
-    Turn,
-    TurnRole,
 )
 
 from _helpers import (
@@ -47,9 +37,9 @@ from _helpers import (
 # ---------------------------------------------------------------------------
 
 
-async def test_initialize_sends_protocol_version_and_client_metadata():
+async def test_initialize_sends_canonical_params():
     client_transport, host_transport = InMemoryTransport.pair()
-    client = AhpClient(client_transport, client_name="test-client", client_version="0.0.1")
+    client = AhpClient(client_transport)
 
     request, root_state = await asyncio.gather(
         respond_to_next_request(host_transport, initialize_result()),
@@ -57,22 +47,28 @@ async def test_initialize_sends_protocol_version_and_client_metadata():
     )
 
     assert request["method"] == "initialize"
-    assert request["params"]["protocolVersion"] == 1
-    assert request["params"]["clientName"] == "test-client"
-    assert request["params"]["clientVersion"] == "0.0.1"
-    assert root_state.session_uris == []
+    # canonical: protocolVersions (plural list of strings)
+    assert request["params"]["protocolVersions"] == ["0.1.0"]
+    # canonical: clientId is sent by the client (UUID string)
+    assert isinstance(request["params"]["clientId"], str)
+    assert len(request["params"]["clientId"]) == 36  # UUID hyphenated format
+    assert root_state.agents == []
 
 
-async def test_initialize_stores_client_id():
+async def test_initialize_client_id_is_stable_across_calls():
+    """clientId is generated once at construction; it's what we send."""
     client_transport, host_transport = InMemoryTransport.pair()
     client = AhpClient(client_transport)
+    initial_id = client.client_id
 
-    await asyncio.gather(
-        respond_to_next_request(host_transport, initialize_result(client_id="abc-999")),
+    request, _ = await asyncio.gather(
+        respond_to_next_request(host_transport, initialize_result()),
         client.initialize(),
     )
 
-    assert client.client_id == "abc-999"
+    # The client sends its own generated clientId (not one from the server).
+    assert request["params"]["clientId"] == initial_id
+    assert client.client_id == initial_id
 
 
 async def test_initialize_raises_ahp_error_on_error_response():
@@ -121,55 +117,64 @@ async def test_dispatch_action_raises_for_unsubscribed_channel():
     client = await initialized_client(client_transport, host_transport)
 
     with pytest.raises(AhpClientError):
-        await client.dispatch_action("ahp-session:/never-subscribed", SessionTitleChangedAction(title="x"))
+        await client.dispatch_action(
+            "ahp-session:/never-subscribed", SessionTitleChangedAction(title="x")
+        )
 
 
-async def test_dispatch_action_applies_locally_before_host_acknowledges():
+async def test_dispatch_action_is_fire_and_forget_notification():
+    """dispatchAction sends a notification (no id) and returns None."""
+    client_transport, host_transport = InMemoryTransport.pair()
+    client = await subscribed_session_client(client_transport, host_transport)
+
+    result = await client.dispatch_action(
+        "ahp-session:/abc", SessionTitleChangedAction(title="New Title")
+    )
+    assert result is None
+
+    # The client should have sent a notification (no "id" field).
+    raw = await host_transport.receive()
+    notification = json.loads(raw)
+    assert "id" not in notification
+    assert notification["method"] == "dispatchAction"
+    assert notification["params"]["channel"] == "ahp-session:/abc"
+
+
+async def test_dispatch_action_applies_locally_before_wire():
+    """Write-ahead: local state updates before notification is sent."""
     client_transport, host_transport = InMemoryTransport.pair()
     client = await subscribed_session_client(client_transport, host_transport)
 
     dispatch_task = asyncio.create_task(
         client.dispatch_action("ahp-session:/abc", SessionTitleChangedAction(title="New Title"))
     )
-    await asyncio.sleep(0)  # let the client send its request; host hasn't answered yet
+    await asyncio.sleep(0)
     await asyncio.sleep(0)
 
-    # Optimistic (write-ahead) apply must already be visible locally, even
-    # though nothing has come back over the wire yet.
+    # Optimistic apply should already be visible locally.
     assert client.get_state("ahp-session:/abc").title == "New Title"
 
-    request = json.loads(await host_transport.receive())
-    assert request["method"] == "dispatchAction"
-    assert request["params"]["channel"] == "ahp-session:/abc"
-    await host_transport.send(
-        json.dumps({"jsonrpc": "2.0", "id": request["id"], "result": {"serverSeq": 42}})
-    )
-
-    server_seq = await dispatch_task
-    assert server_seq == 42
+    await dispatch_task  # notification is sent; no response expected
 
 
 async def test_own_action_echoed_back_via_notification_is_not_double_applied():
-    """The host also broadcasts every dispatched action back as an `action`
-    notification (including to the originating client). If the client
-    re-applied its own echoed action on top of the already-optimistically
-    -applied state, a streaming append would show up twice. It must not.
+    """The host echoes our dispatched action back as an `action` notification.
+    The client must not re-apply it on top of the already-optimistic state.
     """
     client_transport, host_transport = InMemoryTransport.pair()
 
     chat_uri = "ahp-chat:/1"
     client = await initialized_client(client_transport, host_transport)
+    # Snapshot has an in-progress turn in activeTurn (not turns — Turn requires
+    # a terminal state; in-progress turns are ActiveTurn per canonical TS).
     chat_snapshot_result = {
         "snapshot": {
-            "channel": chat_uri,
-            "serverSeq": 1,
+            "resource": chat_uri,
+            "fromSeq": 1,
             "state": {
-                "uri": chat_uri,
-                "sessionUri": "ahp-session:/abc",
-                "turns": [
-                    {"id": "t1", "role": "assistant", "status": "running", "text": "Hel"}
-                ],
-                "pendingConfirmation": False,
+                "resource": chat_uri,
+                "turns": [],
+                "activeTurn": {"id": "t1", "message": {}, "responseParts": []},
             },
         }
     }
@@ -178,30 +183,30 @@ async def test_own_action_echoed_back_via_notification_is_not_double_applied():
         client.subscribe(chat_uri),
     )
 
-    dispatch_task = asyncio.create_task(
-        client.dispatch_action(chat_uri, ChatTurnDeltaAction(turn_id="t1", text_delta="lo"))
+    # Dispatch a delta action (fire-and-forget).
+    await client.dispatch_action(
+        chat_uri,
+        ChatDeltaAction(turn_id="t1", part_id="p1", content="lo"),
     )
-    await asyncio.sleep(0)
-    await asyncio.sleep(0)
 
-    request = json.loads(await host_transport.receive())
-    client_seq_used = request["params"]["clientSeq"]
+    # Read the notification the client sent to the host.
+    raw = await host_transport.receive()
+    notification = json.loads(raw)
+    client_seq_used = notification["params"]["clientSeq"]
 
-    # Host acknowledges the direct RPC call...
-    await host_transport.send(
-        json.dumps({"jsonrpc": "2.0", "id": request["id"], "result": {"serverSeq": 2}})
-    )
-    await dispatch_task
-
-    # ...and separately broadcasts the same mutation as an `action`
-    # notification, echoing this client's own origin.
+    # Host echoes the same mutation back as an `action` notification.
     echo_notification = {
         "jsonrpc": "2.0",
         "method": "action",
         "params": {
             "channel": chat_uri,
             "serverSeq": 2,
-            "action": {"type": "chat/turnDelta", "turnId": "t1", "textDelta": "lo"},
+            "action": {
+                "type": "chat/delta",
+                "turnId": "t1",
+                "partId": "p1",
+                "content": "lo",
+            },
             "origin": {"clientId": client.client_id, "clientSeq": client_seq_used},
         },
     }
@@ -210,14 +215,14 @@ async def test_own_action_echoed_back_via_notification_is_not_double_applied():
     await asyncio.sleep(0)
 
     state = client.get_state(chat_uri)
-    assert state.turns[0].text == "Hello"  # NOT "Hellolo"
+    # Should have exactly one delta part in active_turn (not two — echo skipped).
+    assert isinstance(state, ChatState)
+    assert state.active_turn is not None
+    assert len(state.active_turn["responseParts"]) == 1
 
 
 async def test_foreign_action_notification_is_applied_via_reducer():
-    """An `action` notification whose origin is a *different* client (e.g.
-    another connected surface, or the host itself) must be applied through the
-    channel's reducer, since this client never applied it optimistically.
-    """
+    """An `action` notification from a different client must be applied."""
     client_transport, host_transport = InMemoryTransport.pair()
     client = await subscribed_session_client(client_transport, host_transport)
 

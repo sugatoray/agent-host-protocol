@@ -1,80 +1,86 @@
-"""Pure reducer for a chat channel within a session (``ahp-chat:/<uuid>``)."""
+"""Pure reducer for a chat channel within a session."""
 
 from __future__ import annotations
 
 from ahp.types import (
-    ChatConfirmationRequestedAction,
+    ChatActivityChangedAction,
+    ChatDeltaAction,
+    ChatErrorAction,
     ChatState,
-    ChatTurnCompletedAction,
-    ChatTurnContentRefAddedAction,
-    ChatTurnDeltaAction,
+    ChatTurnCancelledAction,
+    ChatTurnCompleteAction,
     ChatTurnStartedAction,
+    ChatTurnsLoadedAction,
     StateAction,
     Turn,
-    TurnStatus,
 )
 
 
 def chat_reducer(state: ChatState, action: StateAction) -> ChatState:
     """Apply ``action`` to ``state``, returning a new :class:`ChatState`.
 
-    As with the other channel reducers, actions outside the ``chat/*`` family
-    are a no-op.
+    In-progress turns are tracked in ``active_turn`` (an ActiveTurn dict).
+    Only completed turns appear in ``turns``, each with a terminal state string.
+    This matches canonical types/channels-chat/state.ts — Turn.state is always
+    'complete' | 'cancelled' | 'error'; 'running' does not exist on Turn.
     """
     if isinstance(action, ChatTurnStartedAction):
-        new_turn = Turn(id=action.turn_id, role=action.role, status=TurnStatus.RUNNING)
-        return state.model_copy(update={"turns": [*state.turns, new_turn]})
+        active = {"id": action.turn_id, "message": action.message, "responseParts": []}
+        return state.model_copy(update={"active_turn": active})
 
-    if isinstance(action, ChatTurnDeltaAction):
-        found = False
-        new_turns: list[Turn] = []
-        for turn in state.turns:
-            if turn.id == action.turn_id:
-                found = True
-                new_turns.append(
-                    turn.model_copy(
-                        update={"text": (turn.text or "") + action.text_delta}
-                    )
-                )
-            else:
-                new_turns.append(turn)
-        if not found:
+    if isinstance(action, ChatDeltaAction):
+        if state.active_turn is None or state.active_turn.get("id") != action.turn_id:
             return state
-        return state.model_copy(update={"turns": new_turns})
+        part = {"type": "delta", "partId": action.part_id, "content": action.content}
+        updated = {
+            **state.active_turn,
+            "responseParts": [*state.active_turn.get("responseParts", []), part],
+        }
+        return state.model_copy(update={"active_turn": updated})
 
-    if isinstance(action, ChatTurnCompletedAction):
-        found = False
-        new_turns = []
-        for turn in state.turns:
-            if turn.id == action.turn.id:
-                found = True
-                new_turns.append(action.turn)
-            else:
-                new_turns.append(turn)
-        if not found:
-            new_turns.append(action.turn)
-        return state.model_copy(update={"turns": new_turns})
-
-    if isinstance(action, ChatTurnContentRefAddedAction):
-        found = False
-        new_turns = []
-        for turn in state.turns:
-            if turn.id == action.turn_id:
-                found = True
-                new_turns.append(
-                    turn.model_copy(
-                        update={
-                            "content_refs": [*turn.content_refs, action.content_ref]
-                        }
-                    )
-                )
-            else:
-                new_turns.append(turn)
-        if not found:
+    if isinstance(action, ChatTurnCompleteAction):
+        if state.active_turn is None or state.active_turn.get("id") != action.turn_id:
             return state
-        return state.model_copy(update={"turns": new_turns})
+        turn = Turn(
+            id=state.active_turn["id"],
+            message=state.active_turn.get("message", {}),
+            response_parts=state.active_turn.get("responseParts", []),
+            state="complete",
+        )
+        return state.model_copy(update={"turns": [*state.turns, turn], "active_turn": None})
 
-    if isinstance(action, ChatConfirmationRequestedAction):
-        return state.model_copy(update={"pending_confirmation": True})
+    if isinstance(action, ChatTurnCancelledAction):
+        if state.active_turn is None or state.active_turn.get("id") != action.turn_id:
+            return state
+        turn = Turn(
+            id=state.active_turn["id"],
+            message=state.active_turn.get("message", {}),
+            response_parts=state.active_turn.get("responseParts", []),
+            state="cancelled",
+        )
+        return state.model_copy(update={"turns": [*state.turns, turn], "active_turn": None})
+
+    if isinstance(action, ChatErrorAction):
+        if state.active_turn is None or state.active_turn.get("id") != action.turn_id:
+            return state
+        turn = Turn(
+            id=state.active_turn["id"],
+            message=state.active_turn.get("message", {}),
+            response_parts=state.active_turn.get("responseParts", []),
+            state="error",
+            error=action.error,
+        )
+        return state.model_copy(update={"turns": [*state.turns, turn], "active_turn": None})
+
+    if isinstance(action, ChatActivityChangedAction):
+        return state.model_copy(update={"activity": action.activity})
+
+    if isinstance(action, ChatTurnsLoadedAction):
+        return state.model_copy(
+            update={
+                "turns": [*action.turns, *state.turns],
+                "turns_next_cursor": action.next_cursor,
+            }
+        )
 
     return state

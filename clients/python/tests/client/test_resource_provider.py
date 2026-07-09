@@ -1,10 +1,10 @@
-"""Tests for the host-initiated half of the symmetric resource* commands: the
-*host* calling resourceRead/Write/List/Stat against this client (e.g. to read
-a local file the client has access to but the host doesn't).
+"""Tests for the host-initiated symmetric resource* commands.
 
-AhpClient routes these to a registered "resource provider" object. Without one
-registered, it must reply with a JSON-RPC error rather than silently ignoring
-the request or crashing the reader loop.
+The host calls resourceRead/Write/List against this client; AhpClient routes
+to a registered ResourceProvider. Without one, it must reply with a JSON-RPC
+error rather than crashing.
+
+Note: resourceStat is not part of the canonical protocol.
 """
 
 from __future__ import annotations
@@ -12,13 +12,13 @@ from __future__ import annotations
 import json
 
 from ahp.transport.memory import InMemoryTransport
-from ahp.types import ContentRef, ResourceListResult, ResourceReadResult, ResourceStatResult
+from ahp.types import ResourceListResult, ResourceReadResult
 
 from _helpers import initialized_client
 
 
 class FakeResourceProvider:
-    """A minimal in-memory resource provider used to test routing."""
+    """Minimal in-memory resource provider for routing tests."""
 
     def __init__(self) -> None:
         self.files: dict[str, str] = {}
@@ -26,27 +26,22 @@ class FakeResourceProvider:
 
     async def read(self, uri: str) -> ResourceReadResult:
         return ResourceReadResult(
-            content_ref=ContentRef(uri=uri, mime_type="text/plain"),
             data=self.files.get(uri, ""),
+            encoding="utf-8",
         )
 
-    async def write(self, uri: str, data: str) -> None:
+    async def write(self, uri: str, data: str, encoding: str = "utf-8") -> None:
         self.write_calls.append((uri, data))
         self.files[uri] = data
 
     async def list(self, uri: str) -> ResourceListResult:
         return ResourceListResult(
-            entries=[ContentRef(uri=u) for u in self.files if u.startswith(uri)]
-        )
-
-    async def stat(self, uri: str) -> ResourceStatResult:
-        return ResourceStatResult(
-            content_ref=ContentRef(uri=uri), exists=uri in self.files
+            entries=[{"uri": u} for u in self.files if u.startswith(uri)]
         )
 
 
 async def send_host_request(host_transport, request_id: int, method: str, params: dict) -> dict:
-    """Send a host->client JSON-RPC request and return the decoded response."""
+    """Send a host→client JSON-RPC request and return the decoded response."""
     await host_transport.send(
         json.dumps({"jsonrpc": "2.0", "id": request_id, "method": method, "params": params})
     )
@@ -81,7 +76,7 @@ async def test_host_resource_write_is_routed_to_registered_provider():
         host_transport,
         1000,
         "resourceWrite",
-        {"uri": "ahp-resource:/notes.txt", "data": "written by host"},
+        {"uri": "ahp-resource:/notes.txt", "data": "written by host", "encoding": "utf-8"},
     )
 
     assert "error" not in response
@@ -97,7 +92,9 @@ async def test_host_resource_list_is_routed_to_registered_provider():
     provider.files["ahp-resource:/b.txt"] = "b"
     client.register_resource_provider(provider)
 
-    response = await send_host_request(host_transport, 1001, "resourceList", {"uri": "ahp-resource:/"})
+    response = await send_host_request(
+        host_transport, 1001, "resourceList", {"uri": "ahp-resource:/", "channel": "ahp-root://"}
+    )
 
     assert sorted(e["uri"] for e in response["result"]["entries"]) == [
         "ahp-resource:/a.txt",
@@ -105,25 +102,14 @@ async def test_host_resource_list_is_routed_to_registered_provider():
     ]
 
 
-async def test_host_resource_stat_is_routed_to_registered_provider():
-    client_transport, host_transport = InMemoryTransport.pair()
-    client = await initialized_client(client_transport, host_transport)
-
-    provider = FakeResourceProvider()
-    provider.files["ahp-resource:/a.txt"] = "a"
-    client.register_resource_provider(provider)
-
-    response = await send_host_request(host_transport, 1002, "resourceStat", {"uri": "ahp-resource:/a.txt"})
-
-    assert response["result"]["exists"] is True
-
-
 async def test_host_resource_call_without_registered_provider_replies_with_error():
     client_transport, host_transport = InMemoryTransport.pair()
     client = await initialized_client(client_transport, host_transport)
     # deliberately no provider registered
 
-    response = await send_host_request(host_transport, 1003, "resourceRead", {"uri": "ahp-resource:/x.txt"})
+    response = await send_host_request(
+        host_transport, 1003, "resourceRead", {"uri": "ahp-resource:/x.txt"}
+    )
 
     assert "error" in response
     assert response["error"]["code"] is not None
@@ -139,13 +125,13 @@ async def test_host_resource_call_when_provider_raises_replies_with_error_not_cr
 
     client.register_resource_provider(ExplodingProvider())
 
-    response = await send_host_request(host_transport, 1004, "resourceRead", {"uri": "ahp-resource:/x.txt"})
-
+    response = await send_host_request(
+        host_transport, 1004, "resourceRead", {"uri": "ahp-resource:/x.txt"}
+    )
     assert "error" in response
 
-    # The reader loop must have survived the exception: a normal request
-    # afterwards should still work (stat() isn't overridden by
-    # ExplodingProvider, so this succeeds normally).
-    response2 = await send_host_request(host_transport, 1005, "resourceStat", {"uri": "ahp-resource:/x.txt"})
+    # Reader loop must survive the exception; next request still works.
+    response2 = await send_host_request(
+        host_transport, 1005, "resourceList", {"uri": "ahp-resource:/", "channel": "ahp-root://"}
+    )
     assert "error" not in response2
-    assert response2["result"]["exists"] is False

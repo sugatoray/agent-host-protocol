@@ -1,9 +1,8 @@
-"""Tests for the client-initiated half of the symmetric authenticate/resource*
-commands: AhpClient asking the *host* to authenticate a credential or to
-read/write/list/stat a resource the host owns.
+"""Tests for client-initiated authenticate/resource* commands.
 
-The other half — the host asking *this client* to serve a resource* call —
-is covered in test_resource_provider.py.
+The canonical authenticate takes ``resource`` (protected resource URI) and
+``token``; it returns nothing (empty result). resourceStat is not in the
+canonical protocol.
 """
 
 from __future__ import annotations
@@ -13,24 +12,23 @@ import asyncio
 import pytest
 
 from ahp.transport.memory import InMemoryTransport
-from ahp.types import AhpError, ContentRef
+from ahp.types import AhpError
 
 from _helpers import initialized_client, respond_to_next_request, respond_with_error
 
 
-async def test_authenticate_sends_scheme_and_credentials_and_returns_bool():
+async def test_authenticate_sends_resource_and_token():
     client_transport, host_transport = InMemoryTransport.pair()
     client = await initialized_client(client_transport, host_transport)
 
-    request, authenticated = await asyncio.gather(
-        respond_to_next_request(host_transport, {"authenticated": True}),
-        client.authenticate(scheme="bearer", credentials={"token": "secret"}),
+    request, _ = await asyncio.gather(
+        respond_to_next_request(host_transport, {}),
+        client.authenticate("https://api.example.com", "my-bearer-token"),
     )
 
     assert request["method"] == "authenticate"
-    assert request["params"]["scheme"] == "bearer"
-    assert request["params"]["credentials"] == {"token": "secret"}
-    assert authenticated is True
+    assert request["params"]["resource"] == "https://api.example.com"
+    assert request["params"]["token"] == "my-bearer-token"
 
 
 async def test_authenticate_raises_ahp_error_on_failure_response():
@@ -39,7 +37,7 @@ async def test_authenticate_raises_ahp_error_on_failure_response():
 
     async def do_authenticate():
         with pytest.raises(AhpError):
-            await client.authenticate(scheme="bearer", credentials={"token": "bad"})
+            await client.authenticate("https://api.example.com", "bad-token")
 
     await asyncio.gather(
         respond_with_error(host_transport, -32007, "authentication failed"),
@@ -47,14 +45,11 @@ async def test_authenticate_raises_ahp_error_on_failure_response():
     )
 
 
-async def test_resource_read_sends_uri_and_returns_content():
+async def test_resource_read_sends_uri_and_returns_data():
     client_transport, host_transport = InMemoryTransport.pair()
     client = await initialized_client(client_transport, host_transport)
 
-    result_payload = {
-        "contentRef": {"uri": "ahp-resource:/file.txt", "mimeType": "text/plain", "name": "file.txt"},
-        "data": "hello world",
-    }
+    result_payload = {"data": "hello world", "encoding": "utf-8"}
 
     request, result = await asyncio.gather(
         respond_to_next_request(host_transport, result_payload),
@@ -64,7 +59,7 @@ async def test_resource_read_sends_uri_and_returns_content():
     assert request["method"] == "resourceRead"
     assert request["params"]["uri"] == "ahp-resource:/file.txt"
     assert result.data == "hello world"
-    assert isinstance(result.content_ref, ContentRef)
+    assert result.encoding == "utf-8"
 
 
 async def test_resource_write_sends_uri_and_data():
@@ -79,6 +74,7 @@ async def test_resource_write_sends_uri_and_data():
     assert request["method"] == "resourceWrite"
     assert request["params"]["uri"] == "ahp-resource:/file.txt"
     assert request["params"]["data"] == "new contents"
+    assert request["params"]["encoding"] == "utf-8"
 
 
 async def test_resource_list_returns_entries():
@@ -87,8 +83,8 @@ async def test_resource_list_returns_entries():
 
     result_payload = {
         "entries": [
-            {"uri": "ahp-resource:/a.txt", "name": "a.txt"},
-            {"uri": "ahp-resource:/b.txt", "name": "b.txt"},
+            {"uri": "ahp-resource:/a.txt"},
+            {"uri": "ahp-resource:/b.txt"},
         ]
     }
 
@@ -98,22 +94,4 @@ async def test_resource_list_returns_entries():
     )
 
     assert request["method"] == "resourceList"
-    assert [entry.uri for entry in result.entries] == ["ahp-resource:/a.txt", "ahp-resource:/b.txt"]
-
-
-async def test_resource_stat_returns_exists_flag():
-    client_transport, host_transport = InMemoryTransport.pair()
-    client = await initialized_client(client_transport, host_transport)
-
-    result_payload = {
-        "contentRef": {"uri": "ahp-resource:/a.txt", "name": "a.txt"},
-        "exists": True,
-    }
-
-    request, result = await asyncio.gather(
-        respond_to_next_request(host_transport, result_payload),
-        client.resource_stat("ahp-resource:/a.txt"),
-    )
-
-    assert request["method"] == "resourceStat"
-    assert result.exists is True
+    assert [e["uri"] for e in result.entries] == ["ahp-resource:/a.txt", "ahp-resource:/b.txt"]

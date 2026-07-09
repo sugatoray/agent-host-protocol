@@ -24,24 +24,19 @@ class JsonRpcErrorCode(IntEnum):
 
 
 class AhpErrorCode(IntEnum):
-    """AHP-specific error codes, in the JSON-RPC "server error" reserved range
-    (-32000 to -32099).
+    """AHP-specific error codes (``types/common/errors.ts`` ``AhpErrorCodes``)."""
 
-    NOTE: exact code values below are placeholders pending confirmation against
-    the upstream ``docs/specification`` error-code table; update this enum once
-    that page has been reviewed (tracked in SPEC.md open questions).
-    """
-
-    PROTOCOL_VERSION_MISMATCH = -32000
-    NOT_INITIALIZED = -32001
-    UNKNOWN_CHANNEL = -32002
-    SUBSCRIPTION_REQUIRED = -32003
-    STALE_CLIENT_SEQ = -32004
-    RESOURCE_NOT_FOUND = -32005
-    AUTHENTICATION_REQUIRED = -32006
-    AUTHENTICATION_FAILED = -32007
-    SESSION_DISPOSED = -32008
-    OPERATION_NOT_SUPPORTED = -32009
+    SESSION_NOT_FOUND = -32001
+    PROVIDER_NOT_FOUND = -32002
+    SESSION_ALREADY_EXISTS = -32003
+    TURN_IN_PROGRESS = -32004
+    UNSUPPORTED_PROTOCOL_VERSION = -32005
+    CONTENT_NOT_FOUND = -32006
+    AUTH_REQUIRED = -32007
+    NOT_FOUND = -32008
+    PERMISSION_DENIED = -32009
+    ALREADY_EXISTS = -32010
+    CONFLICT = -32011
 
 
 class JsonRpcErrorObject(AhpModel):

@@ -6,31 +6,31 @@ Python client for the [Agent Host Protocol](https://microsoft.github.io/agent-ho
 > `client`, and `hosts` are all implemented via Red/Green TDD. **`ahp.client`
 > and `ahp.hosts` have never actually been run** (no network to install
 > pydantic in the sandbox this was built in) — run `pytest` before relying on
-> them. See [`SPEC.md`](./SPEC.md) §7a and `CHANGELOG.md` for exactly what's
+> them. See [`SPEC.md`](./.scrolls/SPEC.md) §7a and `CHANGELOG.md` for exactly what's
 > verified vs. not.
 
 ## What's here
 
 ```
 src/ahp/
-├── __init__.py        # re-exports AhpClient, MultiHostClient, etc.
-├── types/              # wire types (pydantic v2)
-│   ├── common.py        # URI, Snapshot, ActionEnvelope, ActionOrigin, ContentRef, capabilities
-│   ├── errors.py         # AhpError, JSON-RPC + AHP error codes
-│   ├── jsonrpc.py         # JsonRpcRequest/Response/Notification envelope
-│   ├── state.py            # RootState, SessionState, ChatState, TerminalState, ChangesetState, AnnotationsState
-│   ├── actions.py           # StateAction discriminated union (seed set, extension pattern documented)
-│   ├── commands.py           # CommandMap-equivalent: params/result models per JSON-RPC method
-│   └── notifications.py       # Server->client notification payloads (action, auth/required, etc.)
-├── reducers/            # pure (state, action) -> new_state, one per channel family
-├── transport/            # Transport protocol, InMemoryTransport (testing), WebSocketTransport
-├── client.py               # AhpClient: initialize/subscribe/dispatch_action/reconnect/
-│                             authenticate/resource_*, + ResourceProvider for the host-initiated
-│                             resource* direction
-└── hosts.py                # MultiHostClient: fan-out registry over N AhpClient instances
+├── __init__.py                  # re-exports AhpClient, MultiHostClient, etc.
+├── types/                       # wire types (pydantic v2)
+│   ├── common.py                # URI, Snapshot, ActionEnvelope, ActionOrigin, ContentRef, capabilities
+│   ├── errors.py                # AhpError, JSON-RPC + AHP error codes
+│   ├── jsonrpc.py               # JsonRpcRequest/Response/Notification envelope
+│   ├── state.py                 # RootState, SessionState, ChatState, TerminalState, ChangesetState, AnnotationsState
+│   ├── actions.py               # StateAction discriminated union (seed set, extension pattern documented)
+│   ├── commands.py              # CommandMap-equivalent: params/result models per JSON-RPC method
+│   └── notifications.py         # Server->client notification payloads (action, auth/required, etc.)
+├── reducers/                    # pure (state, action) -> new_state, one per channel family
+├── transport/                   # Transport protocol, InMemoryTransport (testing), WebSocketTransport
+├── client.py                    # AhpClient: initialize/subscribe/dispatch_action/reconnect/
+│                                  authenticate/resource_*, + ResourceProvider for the host-initiated
+│                                  resource* direction
+└── hosts.py                     # MultiHostClient: fan-out registry over N AhpClient instances
 ```
 
-Not yet implemented: `unsubscribe()`. See `SPEC.md` §6 for the full build order
+Not yet implemented: `unsubscribe()`. See `.scrolls/SPEC.md` §6 for the full build order
 and what's verified at each layer.
 
 ## Install (once published)
@@ -47,15 +47,25 @@ uv add ahp --extra websocket
 
 ## Local development
 
+Activate local python environment as:
+
+```bash
+# run this from inside folder: clients/python/
+. .venv/bin/activate
+```
+
+### Setup Local Development Environment
+
 **With `uv`**:
 
 ```bash
 # Method-1: RECOMMENDED
 cd clients/python
 uv sync
-uv sync --extra websocket --extra dev 
+uv sync --extra websocket --extra dev --extra agent
 # uv sync --extra dev
 # uv sync --extra websocket
+# uv sync --extra agent
 uv run pytest -v
 ```
 
@@ -70,7 +80,19 @@ pytest -v
 
 **If you run nothing else, run this first.** `ahp.types`, `ahp.reducers`, and
 `ahp.transport` were verified for real during development; `ahp.client` and
-`ahp.hosts` were only syntax-checked (`py_compile`) — see `SPEC.md` §7a.
+`ahp.hosts` were only syntax-checked (`py_compile`) — see `.scrolls/SPEC.md` §7a.
+
+## Occasoanlly Running PyTest Coverage
+
+As running the following (pytest + coverage) is slower than just running pytest, this should only be run sparingly. Regular Red/Green TDD should only use pytest alone (with coverage).
+
+```bash
+cd clients/python # if not in that directory already
+# generate pytest-coverage report as an html file
+uv run pytest --cov=ahp --cov-report=term-missing --cov-report=html
+```
+
+> NOTE: Once the above command is run, the output is saved as an html file inside `clients/python/htmlcov/` folder.
 
 ## Quick start
 
@@ -110,7 +132,7 @@ async with MultiHostClient.single(client) as multi:
 - Every field set here is a **provisional first pass** based on the public
   specification pages and README, not a line-by-line port of the generated
   Rust/Go/TypeScript types. Expect corrections once cross-checked against
-  `schema/*.schema.json` upstream — see `SPEC.md` §7 (open questions).
+  `schema/*.schema.json` upstream — see `.scrolls/SPEC.md` §7 (open questions).
 
 ## License
 

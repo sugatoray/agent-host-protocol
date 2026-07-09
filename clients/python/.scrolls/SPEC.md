@@ -252,6 +252,21 @@ against a real pydantic install (sandbox had no network access to install
    (point 2), unverified `state.py` field sets (point 3) — is still exactly
    as provisional as described above; passing tests confirm the code runs as
    written, not that the field sets match the real upstream schema.
+6. **Update 2026-07-06 (v9): points 2-4 above are now confirmed, not just
+   flagged.** With the repo-root `types/*.ts` canonical source reachable, a
+   full field-by-field diff was run against it (and `schema/*.schema.json`
+   as tie-breaker) — see [`GAPANALYSIS.md`](./GAPANALYSIS.md). Result: this
+   isn't a handful of wrong field names. Nearly every state field, action
+   variant, command param/result shape, notification shape, and every
+   `AhpErrorCode` value disagrees with canonical `types/*.ts`, and two
+   channel families (`otlp`, `resource-watch`) don't exist in this client at
+   all. `GAPANALYSIS.md` has the itemized, file:line-cited diff and a
+   suggested fix order. Treat points 2-4 above as historical context for
+   *why* the gap exists, not as the current todo list — `GAPANALYSIS.md` is
+   the current todo list.
+7. **Update 2026-07-07 (v10): most of `GAPANALYSIS.md`'s todo list is now
+   done.** See the v10 changelog entry below and `GAPANALYSIS.md` itself for
+   what's left — it's a short, mechanical list now, not a rewrite.
 
 ## 8. Changelog of this document
 
@@ -348,3 +363,130 @@ against a real pydantic install (sandbox had no network access to install
   (`_channel_states`/`_last_seen_server_seq`), each `dispose_*`/`unsubscribe`
   mirrors the same forgetting logic. Full suite: 105/105 passing. Only
   `ping` remains unwrapped from the `COMMANDS` registry (low priority).
+- v9 (2026-07-06) — ran the field-by-field verification against canonical
+  `types/*.ts` that §7a points 2-4 had been flagging as an open hypothesis
+  since v2. Wrote up the full diff in the new `GAPANALYSIS.md` (one section
+  per channel family plus `common/`, each discrepancy file:line-cited on
+  both sides). No production code changed in this pass — this was
+  documentation/verification only, per explicit direction to capture the
+  analysis before starting the fix work. Conclusion: the gap is systemic,
+  not a handful of typos — see `GAPANALYSIS.md`'s "What this means for
+  next-session sequencing" section for the suggested channel-by-channel
+  fix order (errors → common → root/session → chat/terminal →
+  changeset/annotations → new otlp/resource-watch channels), each step
+  still via Red/Green TDD.
+- v10 (2026-07-07) — the reconciliation v9/`GAPANALYSIS.md` called for
+  largely happened: commit `8fceda9` rewrote most of `ahp/types/`
+  (`actions.py`, `commands.py`, `common.py`, `errors.py`, `notifications.py`,
+  `state.py`) and all of `ahp/reducers/`, plus every test file, against
+  canonical `types/*.ts`. `AhpErrorCode`, common state primitives, and the
+  large majority of state/action field names now match canonical TS;
+  invented fields/variants from the original scaffold (`HostCapabilities`,
+  `RootSessionAdded/RemovedAction`, `terminal/output`, `annotations/added`,
+  etc.) are gone. Full suite: 127/127 passing (up from 105). `GAPANALYSIS.md`
+  has been re-verified against the current code and rewritten — it no
+  longer describes a systemic gap, just a shorter list of remaining
+  command-shape, notification-field, and reducer-completion items (see its
+  "What this means for next-session sequencing" section). Added
+  `WISDOM.md`, a standing reference for this package's constraints, traps,
+  ditches, and TDD conventions, distinct from `GAPANALYSIS.md`'s
+  point-in-time diff and `HANDOFF.md`'s narrative handoff.
+- v11 (2026-07-07) — closed all five priorities from `GAPANALYSIS.md`'s
+  prior sequencing list via Red/Green TDD. Full suite: 213/213 passing
+  (up from 127). Changes by priority:
+  - **Notification field shapes** (P1): `auth/required` — `{channel, resource,
+    reason?}`; `root/sessionRemoved` — `{channel, session}`; `root/sessionSummaryChanged`
+    — `{channel, session, changes}`; `root/progress` — `{channel, progressToken,
+    progress, total?, message?}`, registry key fixed to `"root/progress"`; all three
+    `otlp/export*` — `{channel, payload}` wrapper (no longer flattened). New test file:
+    `tests/types/test_notifications.py` (14 tests).
+  - **`create*` command shapes** (P2): `CreateSession/Chat/TerminalResult` now empty
+    (match TS `result: null`); `CreateChatParams` gains required `chat` URI;
+    `CreateTerminalParams` gains required `claim`; `FetchTurnsResult` now empty (turns
+    arrive via `chat/turnsLoaded`); `ListSessionsParams` gains `limit?`/`cursor?`,
+    `ListSessionsResult` uses `{items, nextCursor?}`; `ResolveSessionConfigParams` gains
+    `provider?`/`workingDirectory?`, result is `{schema, values}`; added
+    `SessionConfigCompletionsParams/Result` and `CreateResourceWatchParams/Result`;
+    `InvokeChangesetOperationParams/Result` rewritten to `{channel, operationId, target?}`
+    / `{message?, followUp?}`. `AhpClient` updated accordingly — `create_session`,
+    `create_chat`, `create_terminal` now generate URIs client-side via `uuid.uuid4()`.
+    New test file: `tests/types/test_commands.py` (31 tests); `tests/client/test_lifecycle.py`
+    updated (6 tests).
+  - **Reducer completion** (P3): session reducer — added `isRead`/`isArchived` bitflag
+    ops (`1<<5`/`1<<6`), `customizationUpdated` (upsert by id), `customizationRemoved`
+    (removes from top-level and nested children); fixed `chatRemoved` to filter by
+    `resource` (not `uri`) and clear `default_chat`. Terminal reducer — rewrote
+    `TerminalData` handler to use `command`/`unclassified` content part types; added
+    `TerminalCommandExecuted` (appends new `command` part) and `TerminalCommandFinished`
+    (marks `isComplete`, sets `exitCode`/`durationMs`). Changeset reducer — fixed
+    `fileRemoved` to use `file_id`; added `contentChanged` branch (full replacement of
+    `files`/`operations`/`error`).
+  - **Action field-shape fixes** (P4): `ChangesetFileRemovedAction.file_id = Field(alias="fileId")`
+    (was `id`); `ChangesetContentChangedAction` rewritten to `{files, operations?, error?}`;
+    `ResourceWatchChangedAction.changes` → `list[Any]` (was `dict`); chat actions —
+    `ChatToolCallConfirmedAction`/`ChatToolCallResultConfirmedAction`: `outcome:str` →
+    `approved:bool`; `ChatPendingMessageSetAction`: added `kind:str`, `id:str`;
+    `ChatPendingMessageRemovedAction`: added `kind:str`; `ChatQueuedMessagesReorderedAction`:
+    `ids` → `order`; `ChatInputAnswerChangedAction`: added `question_id`, made `answer`
+    optional; `ChatInputCompletedAction`: added `response` (required), `answers?`.
+    New test file: `tests/types/test_chat_actions.py` (15 tests).
+  - **`resource-watch`** (P5): `ResourceWatchState{root, recursive, excludes?, includes?}`
+    added to `state.py` and `AnyChannelState` union; `reducers/resource_watch.py` added
+    (trivial pass-through, matching canonical TS which has no state mutations post-subscribe);
+    `CreateResourceWatchParams/Result` added (see P2 above). New test file:
+    `tests/reducers/test_resource_watch_reducer.py` (5 tests).
+  - `GAPANALYSIS.md` rewritten to reflect fully-closed status; remaining items
+    are shallow laxities or depth choices, not protocol gaps.
+  - Added `GAPCONTEXT.md` — standing companion to `GAPANALYSIS.md` that records
+    *why* each remaining gap matters: cross-client evidence (TS/Go/Rust file:line),
+    what breaks without it, canonical shape. `CLAUDE.md` updated to reference it
+    as a required read before acting on any gap. Initial entries: `TelemetryCapabilities`,
+    `ChatState` missing fields, `Turn.state` type, `ChatToolCallConfirmedAction`
+    subtype split, `SessionMcpServerStateChangedAction` reducer.
+  - `AhpClient.ping()` wrapper added; structured logging (`logging.getLogger(__name__)`)
+    added to reader loop (malformed messages, unhandled host requests). Suite: 214/214.
+- v15 (2026-07-07) — closed the last two open gaps from GAPCONTEXT.md via Red/Green TDD.
+  (1) `ChatState` missing fields: `origin` (`dict[str, Any] | None`), `interactivity`
+  (`str | None`, values `'full'|'read-only'|'hidden'`), and `working_directory`
+  (`str | None`, alias `workingDirectory`) added to `ChatState` in `state.py`.
+  10 tests in `tests/types/test_chat_state_fields.py`.
+  (2) `SessionMcpServerStateChangedAction` reducer: was a deliberate no-op; now
+  searches `state.customizations` for a matching `mcpServer` entry by `action.id`
+  (top-level first, then inside container `.children`), updates its `state` and
+  `channel` fields immutably. Returns state unchanged if no match, if
+  customizations is `None`/empty, or if the matched entry has a non-`mcpServer`
+  type. Logic mirrors `types/channels-session/reducer.ts:278–329`. 9 tests in
+  `tests/reducers/test_session_mcp_reducer.py`. All gaps from GAPCONTEXT.md now
+  closed. Suite: 257/257.
+- v14 (2026-07-07) — closed `ChatToolCallConfirmedAction` subtype split via Red/Green TDD.
+  `ChatToolCallConfirmedAction` (the `StateAction` union member) now carries all fields
+  from both canonical subtypes: `confirmed` + `edited_tool_input` (approved path) and
+  `reason` + `reason_message` + `user_suggestion` (denied path), plus shared
+  `selected_option_id`. Pydantic's `Field(discriminator="type")` on `StateAction` prevents
+  two separate classes with the same `type` literal, so a flat model is used as the union
+  member. Additionally, `ChatToolCallApprovedAction` (`approved: Literal[True]`, required
+  `confirmed: str`) and `ChatToolCallDeniedAction` (`approved: Literal[False]`, required
+  `reason: str`) added as typed convenience models for callers that construct or dispatch
+  confirmations. Both exported from `ahp.types`. 9 new tests in
+  `tests/types/test_chat_actions.py` (24 total). Suite: 240/240.
+- v13 (2026-07-07) — closed `Turn.state` type gap via Red/Green TDD.
+  `Turn.state` changed from `dict[str, Any]` (defaulting to `{"type":"running"}`)
+  to `Literal["complete", "cancelled", "error"]`, matching canonical
+  `types/channels-chat/state.ts:477-481` and Go/Rust. Architectural correction
+  to `chat_reducer`: in-progress turns now live in `ChatState.active_turn`
+  (a `dict | None`, matching the wire `ActiveTurn` shape) instead of being placed
+  in `turns` with an invented "running" state. `ChatTurnStartedAction` populates
+  `active_turn`; delta/reasoning actions update it; complete/cancelled/error
+  finalize the turn into `turns` with a terminal state string and clear
+  `active_turn`. `ChatState.active_turn` type corrected from `str | None` to
+  `dict[str, Any] | None`. 7 new tests in `tests/types/test_turn_state.py`;
+  `tests/reducers/test_chat_reducer.py` rewritten (13 tests, up from 9);
+  `tests/client/test_ahp_client.py` snapshot fixture updated. Suite: 231/231.
+- v12 (2026-07-07) — closed `TelemetryCapabilities` gap via Red/Green TDD.
+  `TelemetryCapabilities(AhpModel)` added to `src/ahp/types/commands.py` with
+  `logs`, `traces`, `metrics` (all `URI | None`), matching canonical
+  `types/channels-otlp/state.ts:35-68` and the Go/Rust generated types.
+  `InitializeResult.telemetry` changed from `dict[str, Any] | None` to
+  `TelemetryCapabilities | None`. Exported from `ahp.types`. 6 new tests in
+  `tests/types/test_telemetry.py`. `GAPCONTEXT.md` entry marked closed and
+  moved to closed-gaps archive. Suite: 220/220.

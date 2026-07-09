@@ -4,114 +4,188 @@ from __future__ import annotations
 
 from ahp.reducers.chat import chat_reducer
 from ahp.types import (
-    ChatConfirmationRequestedAction,
+    ChatActivityChangedAction,
+    ChatDeltaAction,
+    ChatErrorAction,
     ChatState,
-    ChatTurnCompletedAction,
-    ChatTurnContentRefAddedAction,
-    ChatTurnDeltaAction,
+    ChatTurnCancelledAction,
+    ChatTurnCompleteAction,
     ChatTurnStartedAction,
-    ContentRef,
-    SessionDisposedAction,
+    ChatTurnsLoadedAction,
+    SessionTitleChangedAction,
     Turn,
-    TurnRole,
-    TurnStatus,
 )
 
 
 def make_state(**overrides) -> ChatState:
-    defaults = dict(
-        uri="ahp-chat:/1",
-        session_uri="ahp-session:/abc",
-        turns=[],
-        pending_confirmation=False,
-    )
+    defaults: dict = dict(turns=[], active_turn=None)
     defaults.update(overrides)
     return ChatState(**defaults)
 
 
-def test_turn_started_appends_a_new_running_turn():
-    state = make_state(turns=[])
-    action = ChatTurnStartedAction(turn_id="t1", role=TurnRole.ASSISTANT)
-
-    new_state = chat_reducer(state, action)
-
-    assert len(new_state.turns) == 1
-    turn = new_state.turns[0]
-    assert turn.id == "t1"
-    assert turn.role == TurnRole.ASSISTANT
-    assert turn.status == TurnStatus.RUNNING
+def make_active(id: str, **overrides) -> dict:
+    """Construct an in-progress turn dict (ActiveTurn shape)."""
+    base = {"id": id, "message": {}, "responseParts": []}
+    base.update(overrides)
+    return base
 
 
-def test_turn_delta_appends_text_to_matching_turn():
-    state = make_state(
-        turns=[Turn(id="t1", role=TurnRole.ASSISTANT, status=TurnStatus.RUNNING, text="Hel")]
+def make_completed_turn(id: str, state: str = "complete", **overrides) -> Turn:
+    """Construct a completed Turn (terminal state only)."""
+    return Turn(id=id, state=state, **overrides)
+
+
+# ── ChatTurnStartedAction ─────────────────────────────────────────────────────
+
+def test_turn_started_sets_active_turn():
+    state = make_state()
+    action = ChatTurnStartedAction(
+        turn_id="t1", message={"role": "user", "content": "Hello"}
     )
-    action = ChatTurnDeltaAction(turn_id="t1", text_delta="lo")
+    new_state = chat_reducer(state, action)
+
+    assert new_state.active_turn is not None
+    assert new_state.active_turn["id"] == "t1"
+    assert new_state.active_turn["message"] == {"role": "user", "content": "Hello"}
+    assert new_state.active_turn["responseParts"] == []
+
+
+def test_turn_started_does_not_add_to_turns():
+    # In-progress turns live in active_turn, not turns (ActiveTurn vs Turn).
+    state = make_state()
+    action = ChatTurnStartedAction(turn_id="t1", message={})
+    new_state = chat_reducer(state, action)
+
+    assert len(new_state.turns) == 0
+
+
+# ── ChatDeltaAction ───────────────────────────────────────────────────────────
+
+def test_delta_appends_to_active_turn_response_parts():
+    state = make_state(active_turn=make_active("t1"))
+    action = ChatDeltaAction(turn_id="t1", part_id="p1", content="Hello")
 
     new_state = chat_reducer(state, action)
 
-    assert new_state.turns[0].text == "Hello"
+    parts = new_state.active_turn["responseParts"]
+    assert len(parts) == 1
+    assert parts[0]["content"] == "Hello"
 
 
-def test_turn_delta_is_a_noop_for_unknown_turn_id():
-    state = make_state(turns=[Turn(id="t1", role=TurnRole.ASSISTANT, text="Hi")])
-    action = ChatTurnDeltaAction(turn_id="does-not-exist", text_delta="!")
-
-    new_state = chat_reducer(state, action)
-
-    assert new_state.turns[0].text == "Hi"
-
-
-def test_turn_completed_replaces_matching_turn():
-    state = make_state(
-        turns=[Turn(id="t1", role=TurnRole.ASSISTANT, status=TurnStatus.RUNNING, text="Hello")]
-    )
-    completed_turn = Turn(
-        id="t1", role=TurnRole.ASSISTANT, status=TurnStatus.COMPLETE, text="Hello there!"
-    )
-    action = ChatTurnCompletedAction(turn=completed_turn)
+def test_delta_is_noop_for_unknown_turn_id():
+    state = make_state(active_turn=make_active("t1"))
+    action = ChatDeltaAction(turn_id="does-not-exist", part_id="p1", content="!")
 
     new_state = chat_reducer(state, action)
 
-    assert len(new_state.turns) == 1
-    assert new_state.turns[0].status == TurnStatus.COMPLETE
-    assert new_state.turns[0].text == "Hello there!"
+    assert new_state.active_turn["responseParts"] == []
 
 
-def test_turn_completed_appends_if_turn_not_previously_known():
-    state = make_state(turns=[])
-    completed_turn = Turn(id="t1", role=TurnRole.ASSISTANT, status=TurnStatus.COMPLETE, text="Hi")
-    action = ChatTurnCompletedAction(turn=completed_turn)
+def test_delta_is_noop_when_no_active_turn():
+    state = make_state(active_turn=None)
+    action = ChatDeltaAction(turn_id="t1", part_id="p1", content="!")
+
+    new_state = chat_reducer(state, action)
+
+    assert new_state is state
+
+
+# ── ChatTurnCompleteAction ────────────────────────────────────────────────────
+
+def test_turn_complete_moves_active_to_turns_with_complete_state():
+    state = make_state(active_turn=make_active("t1"))
+    action = ChatTurnCompleteAction(turn_id="t1")
 
     new_state = chat_reducer(state, action)
 
     assert len(new_state.turns) == 1
     assert new_state.turns[0].id == "t1"
+    assert new_state.turns[0].state == "complete"
+    assert new_state.active_turn is None
 
 
-def test_turn_content_ref_added_appends_to_matching_turn():
-    state = make_state(turns=[Turn(id="t1", role=TurnRole.ASSISTANT, content_refs=[])])
-    ref = ContentRef(uri="ahp-resource:/file.png", mime_type="image/png")
-    action = ChatTurnContentRefAddedAction(turn_id="t1", content_ref=ref)
-
-    new_state = chat_reducer(state, action)
-
-    assert len(new_state.turns[0].content_refs) == 1
-    assert new_state.turns[0].content_refs[0].uri == "ahp-resource:/file.png"
-
-
-def test_confirmation_requested_sets_pending_flag():
-    state = make_state(pending_confirmation=False)
-    action = ChatConfirmationRequestedAction(turn_id="t1", prompt="Allow running rm -rf?")
+def test_turn_complete_preserves_response_parts():
+    active = make_active("t1", responseParts=[{"type": "delta", "content": "hi"}])
+    state = make_state(active_turn=active)
+    action = ChatTurnCompleteAction(turn_id="t1")
 
     new_state = chat_reducer(state, action)
 
-    assert new_state.pending_confirmation is True
+    assert new_state.turns[0].response_parts == [{"type": "delta", "content": "hi"}]
 
+
+def test_turn_complete_is_noop_for_unknown_turn():
+    state = make_state(active_turn=make_active("t1"))
+    action = ChatTurnCompleteAction(turn_id="different-id")
+
+    new_state = chat_reducer(state, action)
+
+    assert len(new_state.turns) == 0
+    assert new_state.active_turn is not None
+
+
+# ── ChatTurnCancelledAction ───────────────────────────────────────────────────
+
+def test_turn_cancelled_moves_active_to_turns_with_cancelled_state():
+    state = make_state(active_turn=make_active("t1"))
+    action = ChatTurnCancelledAction(turn_id="t1")
+
+    new_state = chat_reducer(state, action)
+
+    assert len(new_state.turns) == 1
+    assert new_state.turns[0].state == "cancelled"
+    assert new_state.active_turn is None
+
+
+# ── ChatErrorAction ───────────────────────────────────────────────────────────
+
+def test_error_moves_active_to_turns_with_error_state():
+    state = make_state(active_turn=make_active("t1"))
+    error = {"errorType": "NetworkError", "message": "timeout"}
+    action = ChatErrorAction(turn_id="t1", error=error)
+
+    new_state = chat_reducer(state, action)
+
+    assert len(new_state.turns) == 1
+    assert new_state.turns[0].state == "error"
+    assert new_state.turns[0].error == error
+    assert new_state.active_turn is None
+
+
+# ── ChatTurnsLoadedAction ─────────────────────────────────────────────────────
+
+def test_turns_loaded_prepends_to_existing_turns():
+    existing = make_completed_turn("t3")
+    state = make_state(turns=[existing])
+    loaded_turns = [
+        {"id": "t1", "message": {}, "responseParts": [], "state": "complete"},
+        {"id": "t2", "message": {}, "responseParts": [], "state": "complete"},
+    ]
+    action = ChatTurnsLoadedAction(turns=loaded_turns, next_cursor="prev-cursor")
+
+    new_state = chat_reducer(state, action)
+
+    assert len(new_state.turns) == 3
+    assert new_state.turns_next_cursor == "prev-cursor"
+    assert new_state.turns[-1].id == "t3"
+
+
+# ── ChatActivityChangedAction ─────────────────────────────────────────────────
+
+def test_activity_changed():
+    state = make_state()
+    action = ChatActivityChangedAction(activity="thinking")
+
+    new_state = chat_reducer(state, action)
+
+    assert new_state.activity == "thinking"
+
+
+# ── Cross-channel no-op ───────────────────────────────────────────────────────
 
 def test_reducer_ignores_actions_belonging_to_other_channels():
     state = make_state()
-    foreign_action = SessionDisposedAction()
+    foreign_action = SessionTitleChangedAction(title="other")
 
     new_state = chat_reducer(state, foreign_action)
 

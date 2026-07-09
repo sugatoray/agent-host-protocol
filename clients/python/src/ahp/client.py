@@ -1,23 +1,17 @@
-"""``AhpClient`` — a single-host AHP client: JSON-RPC dispatch over a pluggable
-:class:`~ahp.transport.base.Transport`, channel subscription bookkeeping, and
-write-ahead reconciliation against the pure reducers in ``ahp.reducers``.
-
-Scope for this pass (see SPEC.md §6): ``initialize``, ``subscribe``,
-``unsubscribe``, ``dispatch_action`` + the ``action`` notification
-reconciliation loop, ``reconnect`` (replay vs. resnapshot), ``close``, the
-client-initiated ``authenticate``/``resource*`` commands, the host-initiated
-``resource*`` direction (via a registered :class:`ResourceProvider`), and the
-session/chat/terminal lifecycle commands (``create_session``,
-``dispose_session``, ``list_sessions``, ``create_chat``, ``dispose_chat``,
-``fetch_turns``, ``create_terminal``, ``dispose_terminal``, ``completions``,
-``invoke_changeset_operation``).
+"""``AhpClient`` — single-host AHP client: JSON-RPC dispatch, channel
+subscription bookkeeping, and write-ahead reconciliation against the pure
+reducers in ``ahp.reducers``.
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
+import logging
+import uuid
 from typing import Any, Callable, Protocol, runtime_checkable
+
+_log = logging.getLogger(__name__)
 
 from pydantic import TypeAdapter
 
@@ -32,12 +26,10 @@ from .reducers import (
 from .transport.base import Transport, TransportClosedError
 from .types import (
     URI,
-    AgentInfo,
     AhpError,
     AhpModel,
     AnnotationsState,
     AnyChannelState,
-    ChangesetOperationStatus,
     ChangesetState,
     ChatState,
     JsonRpcErrorCode,
@@ -49,7 +41,6 @@ from .types import (
 )
 from .types.commands import (
     AuthenticateParams,
-    AuthenticateResult,
     CompletionsParams,
     CompletionsResult,
     CreateChatParams,
@@ -59,7 +50,6 @@ from .types.commands import (
     CreateTerminalParams,
     CreateTerminalResult,
     DispatchActionParams,
-    DispatchActionResult,
     DisposeChatParams,
     DisposeChatResult,
     DisposeSessionParams,
@@ -74,14 +64,14 @@ from .types.commands import (
     InvokeChangesetOperationResult,
     ListSessionsParams,
     ListSessionsResult,
+    PingParams,
     ReconnectParams,
-    ReconnectResult,
+    ReconnectReplayResult,
+    ReconnectSnapshotResult,
     ResourceListParams,
     ResourceListResult,
     ResourceReadParams,
     ResourceReadResult,
-    ResourceStatParams,
-    ResourceStatResult,
     ResourceWriteParams,
     ResourceWriteResult,
     SubscribeParams,
@@ -98,38 +88,10 @@ from .types.jsonrpc import (
 )
 from .types.notifications import ActionNotification
 
-__version_client_name__ = "ahp-python"
-
-
-class AhpClientError(Exception):
-    """Raised for local, protocol-adjacent misuse that isn't a JSON-RPC error
-    from the host — e.g. dispatching an action against a channel this client
-    never subscribed to.
-    """
-
-
-@runtime_checkable
-class ResourceProvider(Protocol):
-    """What a client must implement to serve host-initiated ``resource*``
-    calls (the symmetric direction: the host asking *this* client to
-    read/write/list/stat a resource it has access to, e.g. a local file).
-
-    Register an implementation via :meth:`AhpClient.register_resource_provider`.
-    """
-
-    async def read(self, uri: URI) -> ResourceReadResult: ...
-
-    async def write(self, uri: URI, data: str) -> None: ...
-
-    async def list(self, uri: URI) -> ResourceListResult: ...
-
-    async def stat(self, uri: URI) -> ResourceStatResult: ...
-
-
-# Channel URI scheme -> (state model, pure reducer). The scheme is everything
-# before the first ':' (e.g. "ahp-session" in "ahp-session:/abc-123").
+# Channel URI scheme -> (state model, pure reducer).
+# Scheme is everything before the first ':' (e.g. "ahp-root" in "ahp-root://").
 _CHANNEL_BINDINGS: dict[str, tuple[type[AhpModel], Callable[[Any, StateAction], Any]]] = {
-    "agenthost": (RootState, root_reducer),
+    "ahp-root": (RootState, root_reducer),
     "ahp-session": (SessionState, session_reducer),
     "ahp-chat": (ChatState, chat_reducer),
     "ahp-terminal": (TerminalState, terminal_reducer),
@@ -138,6 +100,24 @@ _CHANNEL_BINDINGS: dict[str, tuple[type[AhpModel], Callable[[Any, StateAction], 
 }
 
 _state_action_adapter: TypeAdapter[StateAction] = TypeAdapter(StateAction)
+
+_ROOT_CHANNEL: URI = "ahp-root://"
+_PROTOCOL_VERSION = "0.1.0"
+
+
+class AhpClientError(Exception):
+    """Local protocol misuse — not a JSON-RPC error from the host."""
+
+
+@runtime_checkable
+class ResourceProvider(Protocol):
+    """Implement to serve host-initiated ``resource*`` calls (symmetric direction)."""
+
+    async def read(self, uri: URI) -> ResourceReadResult: ...
+
+    async def write(self, uri: URI, data: str, encoding: str = "utf-8") -> None: ...
+
+    async def list(self, uri: URI) -> ResourceListResult: ...
 
 
 def _channel_scheme(channel: URI) -> str:
@@ -149,7 +129,9 @@ def _channel_binding(channel: URI) -> tuple[type[AhpModel], Callable[[Any, State
     try:
         return _CHANNEL_BINDINGS[scheme]
     except KeyError as exc:
-        raise AhpClientError(f"unrecognized channel scheme: {scheme!r} (channel={channel!r})") from exc
+        raise AhpClientError(
+            f"unrecognized channel scheme: {scheme!r} (channel={channel!r})"
+        ) from exc
 
 
 class AhpClient:
@@ -159,23 +141,16 @@ class AhpClient:
 
         async with AhpClient(transport) as client:
             root_state = await client.initialize()
-            session_state = await client.subscribe(some_session_uri)
-            await client.dispatch_action(some_session_uri, SessionTitleChangedAction(title="Hi"))
+            session_uri = await client.create_session(channel="ahp-session:/...")
+            session_state = await client.subscribe(session_uri)
     """
 
-    def __init__(
-        self,
-        transport: Transport,
-        *,
-        client_name: str = __version_client_name__,
-        client_version: str = "0.1.0",
-    ) -> None:
+    def __init__(self, transport: Transport) -> None:
         self._transport = transport
-        self._client_name = client_name
-        self._client_version = client_version
 
-        self._client_id: str | None = None
-        self._root_channel: URI | None = None
+        # Client generates its own clientId UUID before sending initialize.
+        self._client_id: str = str(uuid.uuid4())
+        self._initialized: bool = False
 
         self._channel_states: dict[URI, AnyChannelState] = {}
         self._last_seen_server_seq: dict[URI, int] = {}
@@ -188,19 +163,14 @@ class AhpClient:
         self._reader_task: "asyncio.Task[None] | None" = None
         self._resource_provider: ResourceProvider | None = None
 
-    # -- properties ----------------------------------------------------
+    # -- properties --------------------------------------------------------
 
     @property
-    def client_id(self) -> str | None:
-        """The client id assigned by the host during ``initialize``, or
-        ``None`` if ``initialize`` hasn't completed yet."""
+    def client_id(self) -> str:
+        """UUID this client uses when communicating with the host."""
         return self._client_id
 
-    @property
-    def root_channel(self) -> URI | None:
-        return self._root_channel
-
-    # -- lifecycle -------------------------------------------------------
+    # -- lifecycle ---------------------------------------------------------
 
     async def __aenter__(self) -> "AhpClient":
         return self
@@ -209,34 +179,43 @@ class AhpClient:
         await self.close()
 
     async def close(self) -> None:
-        """Close the underlying transport and stop the background reader
-        loop. Idempotent.
-        """
+        """Close transport and stop background reader. Idempotent."""
         await self._transport.close()
         if self._reader_task is not None:
             await self._reader_task
 
     # -- commands ----------------------------------------------------------
 
-    async def initialize(self) -> RootState:
-        """Perform the AHP handshake: negotiate protocol version, obtain a
-        client id, and return the root channel's initial state.
+    async def initialize(
+        self,
+        *,
+        initial_subscriptions: list[URI] | None = None,
+        locale: str | None = None,
+    ) -> RootState:
+        """Perform the AHP handshake and return the root channel's initial state.
+
+        The client generates its own ``clientId`` UUID; no client-id is
+        returned by the server.  The server returns ``snapshots`` (a list)
+        rather than a single root snapshot.
         """
         params = InitializeParams(
-            protocol_version=1,
-            client_name=self._client_name,
-            client_version=self._client_version,
+            protocol_versions=[_PROTOCOL_VERSION],
+            client_id=self._client_id,
+            initial_subscriptions=initial_subscriptions,
+            locale=locale,
         )
         raw_result = await self._send_request("initialize", params)
         result = InitializeResult.model_validate(raw_result)
 
-        self._client_id = result.client_id
-        self._root_channel = result.root_snapshot.channel
+        # Ingest all snapshots the server sent along with the initialize result.
+        for snap in result.snapshots:
+            state_model, _reducer = _channel_binding(snap.resource)
+            state = state_model.model_validate(snap.state)
+            self._channel_states[snap.resource] = state
+            self._last_seen_server_seq[snap.resource] = snap.from_seq
 
-        root_state = RootState.model_validate(result.root_snapshot.state)
-        self._channel_states[result.root_snapshot.channel] = root_state
-        self._last_seen_server_seq[result.root_snapshot.channel] = result.root_snapshot.server_seq
-        return root_state
+        self._initialized = True
+        return self._channel_states.get(_ROOT_CHANNEL, RootState())  # type: ignore[return-value]
 
     async def subscribe(self, channel: URI) -> AnyChannelState:
         """Subscribe to ``channel`` and return its current (snapshot) state."""
@@ -246,9 +225,14 @@ class AhpClient:
         raw_result = await self._send_request("subscribe", params)
         result = SubscribeResult.model_validate(raw_result)
 
-        state = state_model.model_validate(result.snapshot.state)
+        if result.snapshot is None:
+            # Server sent no snapshot — use default empty state.
+            state: AnyChannelState = state_model()  # type: ignore[call-arg]
+        else:
+            state = state_model.model_validate(result.snapshot.state)
+            self._last_seen_server_seq[channel] = result.snapshot.from_seq
+
         self._channel_states[channel] = state
-        self._last_seen_server_seq[channel] = result.snapshot.server_seq
         return state
 
     async def unsubscribe(self, channel: URI) -> None:
@@ -257,23 +241,20 @@ class AhpClient:
         self._channel_states.pop(channel, None)
         self._last_seen_server_seq.pop(channel, None)
 
-    async def reconnect(self, transport: Transport | None = None) -> ReconnectResult:
+    async def reconnect(
+        self,
+        transport: Transport | None = None,
+        *,
+        channel: URI = _ROOT_CHANNEL,
+    ) -> ReconnectReplayResult | ReconnectSnapshotResult:
         """Re-establish the session after a dropped connection.
 
-        If ``transport`` is given, it replaces the current (presumably dead)
-        transport — the old background reader task (if still running) is
-        cancelled rather than awaited, since the old transport may not be
-        cleanly closed. If omitted, the existing transport is reused as-is
-        (e.g. the caller already swapped in a fresh connection object without
-        creating a new ``AhpClient``).
-
-        Sends the host this client's ``last_seen_server_seq`` per channel; the
-        host decides, per channel, whether to **replay** the missed ``action``
-        notifications (left for the normal notification handler to apply) or
-        to **resnapshot** (this method overwrites local state for those
-        channels immediately with the fresh snapshot).
+        ``channel`` is the channel we reconnect on (defaults to root).
+        ``lastSeenServerSeq`` is taken from local state for that channel.
+        The host receives the full subscription list and decides per-channel
+        whether to replay actions or resend a snapshot.
         """
-        if self._client_id is None:
+        if not self._initialized:
             raise AhpClientError("cannot reconnect before initialize() has completed")
 
         if transport is not None:
@@ -284,36 +265,36 @@ class AhpClient:
                 old_reader_task.cancel()
 
         params = ReconnectParams(
+            channel=channel,
             client_id=self._client_id,
-            last_seen_server_seq=dict(self._last_seen_server_seq),
+            last_seen_server_seq=self._last_seen_server_seq.get(channel, 0),
+            subscriptions=list(self._channel_states.keys()),
         )
         raw_result = await self._send_request("reconnect", params)
-        result = ReconnectResult.model_validate(raw_result)
 
-        for snapshot in result.resnapshotted:
-            state_model, _reducer = _channel_binding(snapshot.channel)
-            state = state_model.model_validate(snapshot.state)
-            self._channel_states[snapshot.channel] = state
-            self._last_seen_server_seq[snapshot.channel] = snapshot.server_seq
+        # Parse as the appropriate result variant based on `type` field.
+        result_type = (raw_result or {}).get("type")
+        if result_type == "snapshot":
+            result = ReconnectSnapshotResult.model_validate(raw_result)
+            for snap in result.snapshots:
+                state_model, _reducer = _channel_binding(snap.resource)
+                state = state_model.model_validate(snap.state)
+                self._channel_states[snap.resource] = state
+                self._last_seen_server_seq[snap.resource] = snap.from_seq
+        else:
+            result = ReconnectReplayResult.model_validate(raw_result)
+            # Replayed channels: actions arrive as normal notifications; no
+            # special handling needed here.
 
-        # Replayed channels are intentionally left untouched here: the host
-        # will follow up with ordinary `action` notifications for whatever
-        # was missed, and _handle_action_notification() applies those exactly
-        # as it would for any other notification (including correctly
-        # recognizing echoes of this client's own not-yet-acknowledged
-        # actions from before the drop).
         return result
 
-    async def dispatch_action(self, channel: URI, action: StateAction) -> int:
-        """Dispatch ``action`` against ``channel``.
+    async def dispatch_action(self, channel: URI, action: StateAction) -> None:
+        """Dispatch ``action`` against ``channel`` (fire-and-forget notification).
 
-        Applies the action to local state immediately (write-ahead), before
-        the round trip to the host completes, then sends ``dispatchAction``
-        and returns the ``serverSeq`` the host assigned to the mutation. The
-        corresponding ``action`` notification the host later broadcasts (which
-        echoes this same mutation back, including to this client) is matched
-        against the pending client_seq recorded here and is *not* re-applied —
-        see :meth:`_handle_action_notification`.
+        Applies the action to local state immediately (write-ahead), then
+        sends a ``dispatchAction`` JSON-RPC *notification* (no id, no response).
+        The host will echo the action back as an ``action`` notification;
+        our reader loop recognises our own client_seq and skips re-applying it.
         """
         _state_model, reducer = _channel_binding(channel)
         current = self._channel_states.get(channel)
@@ -326,7 +307,7 @@ class AhpClient:
         client_seq = self._next_client_seq()
         self._own_pending_client_seqs.add(client_seq)
 
-        # Write-ahead: apply locally before awaiting anything from the host.
+        # Write-ahead: apply locally before sending.
         self._channel_states[channel] = reducer(current, action)
 
         params = DispatchActionParams(
@@ -334,151 +315,177 @@ class AhpClient:
             client_seq=client_seq,
             action=action.model_dump(by_alias=True),
         )
-        raw_result = await self._send_request("dispatchAction", params)
-        result = DispatchActionResult.model_validate(raw_result)
-        return result.server_seq
+        await self._send_notification("dispatchAction", params)
 
     def get_state(self, channel: URI) -> AnyChannelState | None:
-        """Return the last known state for ``channel``, or ``None`` if this
-        client has never subscribed to (or initialized) it.
-        """
+        """Return last known state for ``channel``, or ``None`` if not subscribed."""
         return self._channel_states.get(channel)
 
-    async def authenticate(self, scheme: str, credentials: dict[str, Any] | None = None) -> bool:
-        """Ask the host to authenticate ``credentials`` under ``scheme``.
+    async def ping(self, *, channel: URI = _ROOT_CHANNEL) -> None:
+        """Send a ping to the host (liveness check)."""
+        await self._send_request("ping", PingParams(channel=channel))
 
-        Typically called in response to an ``auth/required`` notification
-        (e.g. an expired token mid-session), but can also be called
-        proactively.
-        """
-        params = AuthenticateParams(scheme=scheme, credentials=credentials or {})
-        raw_result = await self._send_request("authenticate", params)
-        result = AuthenticateResult.model_validate(raw_result)
-        return result.authenticated
+    async def authenticate(self, resource: str, token: str) -> None:
+        """Authenticate with the host for ``resource`` using ``token``."""
+        params = AuthenticateParams(resource=resource, token=token)
+        await self._send_request("authenticate", params)
 
-    async def resource_read(self, uri: URI) -> ResourceReadResult:
-        """Ask the host to read a resource it owns."""
-        raw_result = await self._send_request("resourceRead", ResourceReadParams(uri=uri))
+    async def resource_read(self, uri: URI, *, channel: URI = _ROOT_CHANNEL) -> ResourceReadResult:
+        """Ask the host to read a resource."""
+        raw_result = await self._send_request(
+            "resourceRead", ResourceReadParams(channel=channel, uri=uri)
+        )
         return ResourceReadResult.model_validate(raw_result)
 
-    async def resource_write(self, uri: URI, data: str) -> None:
-        """Ask the host to write ``data`` to a resource it owns."""
-        await self._send_request("resourceWrite", ResourceWriteParams(uri=uri, data=data))
+    async def resource_write(
+        self,
+        uri: URI,
+        data: str,
+        encoding: str = "utf-8",
+        *,
+        channel: URI = _ROOT_CHANNEL,
+    ) -> None:
+        """Ask the host to write ``data`` to ``uri``."""
+        await self._send_request(
+            "resourceWrite",
+            ResourceWriteParams(channel=channel, uri=uri, data=data, encoding=encoding),
+        )
 
-    async def resource_list(self, uri: URI) -> ResourceListResult:
+    async def resource_list(self, uri: URI, *, channel: URI = _ROOT_CHANNEL) -> ResourceListResult:
         """Ask the host to list entries under ``uri``."""
-        raw_result = await self._send_request("resourceList", ResourceListParams(uri=uri))
+        raw_result = await self._send_request(
+            "resourceList", ResourceListParams(channel=channel, uri=uri)
+        )
         return ResourceListResult.model_validate(raw_result)
 
-    async def resource_stat(self, uri: URI) -> ResourceStatResult:
-        """Ask the host whether/what a resource is, without reading it."""
-        raw_result = await self._send_request("resourceStat", ResourceStatParams(uri=uri))
-        return ResourceStatResult.model_validate(raw_result)
-
     async def create_session(
-        self, *, agent: AgentInfo | None = None, title: str | None = None
-    ) -> SessionState:
-        """Ask the host to create a new session, subscribing to its channel."""
-        params = CreateSessionParams(agent=agent, title=title)
-        raw_result = await self._send_request("createSession", params)
-        result = CreateSessionResult.model_validate(raw_result)
+        self,
+        *,
+        provider: str | None = None,
+        working_directory: str | None = None,
+        config: dict[str, Any] | None = None,
+    ) -> URI:
+        """Ask the host to create a new session; returns the client-chosen session URI.
 
-        state_model, _reducer = _channel_binding(result.snapshot.channel)
-        state = state_model.model_validate(result.snapshot.state)
-        self._channel_states[result.snapshot.channel] = state
-        self._last_seen_server_seq[result.snapshot.channel] = result.snapshot.server_seq
-        return state
+        The session URI is generated client-side (per canonical protocol); result is null.
+        """
+        session_uri = f"ahp-session:/{uuid.uuid4()}"
+        params = CreateSessionParams(
+            channel=session_uri,
+            provider=provider,
+            working_directory=working_directory,
+            config=config,
+        )
+        await self._send_request("createSession", params)
+        return session_uri
 
-    async def dispose_session(self, session_uri: URI) -> None:
+    async def dispose_session(self, session_channel: URI) -> None:
         """Ask the host to dispose of a session and forget its local state."""
-        await self._send_request("disposeSession", DisposeSessionParams(session_uri=session_uri))
-        self._channel_states.pop(session_uri, None)
-        self._last_seen_server_seq.pop(session_uri, None)
+        await self._send_request(
+            "disposeSession", DisposeSessionParams(channel=session_channel)
+        )
+        self._channel_states.pop(session_channel, None)
+        self._last_seen_server_seq.pop(session_channel, None)
 
-    async def list_sessions(self) -> list[URI]:
-        """Ask the host for the URIs of every currently open session."""
+    async def list_sessions(self) -> ListSessionsResult:
+        """Ask the host for the list of current sessions."""
         raw_result = await self._send_request("listSessions", ListSessionsParams())
-        result = ListSessionsResult.model_validate(raw_result)
-        return result.session_uris
+        return ListSessionsResult.model_validate(raw_result)
 
-    async def create_chat(self, session_uri: URI) -> ChatState:
-        """Ask the host to create a new chat under ``session_uri``, subscribing
-        to its channel."""
-        params = CreateChatParams(session_uri=session_uri)
-        raw_result = await self._send_request("createChat", params)
-        result = CreateChatResult.model_validate(raw_result)
+    async def create_chat(
+        self,
+        session_channel: URI,
+        *,
+        initial_message: dict[str, Any] | None = None,
+        source: dict[str, Any] | None = None,
+    ) -> URI:
+        """Ask the host to create a new chat; returns the client-chosen chat URI.
 
-        state_model, _reducer = _channel_binding(result.snapshot.channel)
-        state = state_model.model_validate(result.snapshot.state)
-        self._channel_states[result.snapshot.channel] = state
-        self._last_seen_server_seq[result.snapshot.channel] = result.snapshot.server_seq
-        return state
+        The chat URI is generated client-side (per canonical protocol); result is null.
+        """
+        chat_uri = f"ahp-chat:/{uuid.uuid4()}"
+        params = CreateChatParams(
+            channel=session_channel,
+            chat=chat_uri,
+            initial_message=initial_message,
+            source=source,
+        )
+        await self._send_request("createChat", params)
+        return chat_uri
 
-    async def dispose_chat(self, chat_uri: URI) -> None:
+    async def dispose_chat(self, chat_channel: URI) -> None:
         """Ask the host to dispose of a chat and forget its local state."""
-        await self._send_request("disposeChat", DisposeChatParams(chat_uri=chat_uri))
-        self._channel_states.pop(chat_uri, None)
-        self._last_seen_server_seq.pop(chat_uri, None)
+        await self._send_request("disposeChat", DisposeChatParams(channel=chat_channel))
+        self._channel_states.pop(chat_channel, None)
+        self._last_seen_server_seq.pop(chat_channel, None)
 
     async def fetch_turns(
-        self, chat_uri: URI, *, before_turn_id: str | None = None, limit: int = 50
-    ) -> FetchTurnsResult:
-        """Ask the host for a page of a chat's turn history."""
-        params = FetchTurnsParams(chat_uri=chat_uri, before_turn_id=before_turn_id, limit=limit)
-        raw_result = await self._send_request("fetchTurns", params)
-        return FetchTurnsResult.model_validate(raw_result)
+        self, chat_channel: URI, *, cursor: str | None = None
+    ) -> None:
+        """Ask the host to (re)deliver a page of a chat's turn history.
+
+        Per canonical protocol, fetchTurns result is empty — turns arrive via the
+        ``chat/turnsLoaded`` action on the subscribed chat channel.
+        """
+        params = FetchTurnsParams(channel=chat_channel, cursor=cursor)
+        await self._send_request("fetchTurns", params)
 
     async def create_terminal(
-        self, session_uri: URI, *, shell: str | None = None, cwd: str | None = None
-    ) -> TerminalState:
-        """Ask the host to create a new terminal under ``session_uri``,
-        subscribing to its channel."""
-        params = CreateTerminalParams(session_uri=session_uri, shell=shell, cwd=cwd)
-        raw_result = await self._send_request("createTerminal", params)
-        result = CreateTerminalResult.model_validate(raw_result)
+        self,
+        claim: dict[str, Any],
+        *,
+        name: str | None = None,
+        cwd: str | None = None,
+        cols: int | None = None,
+        rows: int | None = None,
+    ) -> URI:
+        """Ask the host to create a new terminal; returns the client-chosen terminal URI.
 
-        state_model, _reducer = _channel_binding(result.snapshot.channel)
-        state = state_model.model_validate(result.snapshot.state)
-        self._channel_states[result.snapshot.channel] = state
-        self._last_seen_server_seq[result.snapshot.channel] = result.snapshot.server_seq
-        return state
+        The terminal URI is generated client-side (per canonical protocol); result is null.
+        ``claim`` identifies the initial owner of the terminal.
+        """
+        terminal_uri = f"ahp-terminal:/{uuid.uuid4()}"
+        params = CreateTerminalParams(
+            channel=terminal_uri, claim=claim, name=name, cwd=cwd, cols=cols, rows=rows
+        )
+        await self._send_request("createTerminal", params)
+        return terminal_uri
 
-    async def dispose_terminal(self, terminal_uri: URI) -> None:
+    async def dispose_terminal(self, terminal_channel: URI) -> None:
         """Ask the host to dispose of a terminal and forget its local state."""
-        await self._send_request("disposeTerminal", DisposeTerminalParams(terminal_uri=terminal_uri))
-        self._channel_states.pop(terminal_uri, None)
-        self._last_seen_server_seq.pop(terminal_uri, None)
+        await self._send_request(
+            "disposeTerminal", DisposeTerminalParams(channel=terminal_channel)
+        )
+        self._channel_states.pop(terminal_channel, None)
+        self._last_seen_server_seq.pop(terminal_channel, None)
 
     async def completions(
-        self, session_uri: URI, *, prefix: str, kind: str | None = None
-    ) -> list[str]:
-        """Ask the host for completion suggestions for ``prefix`` within a session."""
-        params = CompletionsParams(session_uri=session_uri, prefix=prefix, kind=kind)
+        self, channel: URI, *, kind: str, text: str, offset: int
+    ) -> CompletionsResult:
+        """Ask the host for completion suggestions."""
+        params = CompletionsParams(kind=kind, channel=channel, text=text, offset=offset)
         raw_result = await self._send_request("completions", params)
-        result = CompletionsResult.model_validate(raw_result)
-        return result.items
+        return CompletionsResult.model_validate(raw_result)
 
     async def invoke_changeset_operation(
-        self, changeset_uri: URI, operation: str, *, args: dict[str, Any] | None = None
-    ) -> ChangesetOperationStatus:
-        """Ask the host to invoke ``operation`` (e.g. accept/reject) against a
-        changeset."""
+        self,
+        changeset_channel: URI,
+        operation_id: str,
+        *,
+        target: dict[str, Any] | None = None,
+    ) -> InvokeChangesetOperationResult:
+        """Invoke a named operation against a changeset."""
         params = InvokeChangesetOperationParams(
-            changeset_uri=changeset_uri, operation=operation, args=args or {}
+            channel=changeset_channel, operation_id=operation_id, target=target
         )
         raw_result = await self._send_request("invokeChangesetOperation", params)
-        result = InvokeChangesetOperationResult.model_validate(raw_result)
-        return result.status
+        return InvokeChangesetOperationResult.model_validate(raw_result)
 
     def register_resource_provider(self, provider: ResourceProvider | None) -> None:
-        """Register the object that serves host-initiated ``resource*``
-        calls against this client (the symmetric direction — see
-        :class:`ResourceProvider`). Replaces any previously registered
-        provider. Pass ``None`` to unregister.
-        """
+        """Register (or clear) the handler for host-initiated ``resource*`` calls."""
         self._resource_provider = provider
 
-    # -- wire plumbing -------------------------------------------------
+    # -- wire plumbing -------------------------------------------------------
 
     def _next_request_id(self) -> int:
         self._next_request_id_counter += 1
@@ -508,6 +515,17 @@ class AhpClient:
         await self._transport.send(request.model_dump_json(by_alias=True, exclude_none=True))
         return await future
 
+    async def _send_notification(self, method: str, params: AhpModel) -> None:
+        """Send a fire-and-forget JSON-RPC notification (no id, no response)."""
+        self._ensure_reader_started()
+        notification = JsonRpcNotification(
+            method=method,
+            params=params.model_dump(by_alias=True, exclude_none=True),
+        )
+        await self._transport.send(
+            notification.model_dump_json(by_alias=True, exclude_none=True)
+        )
+
     async def _reader_loop(self) -> None:
         try:
             while True:
@@ -520,8 +538,7 @@ class AhpClient:
                     parsed = json.loads(raw)
                     message = parse_protocol_message(parsed)
                 except Exception:
-                    # Malformed/unrecognized message: don't crash the reader
-                    # loop over a single bad frame.
+                    _log.warning("ahp: malformed message from host, skipping: %r", raw, exc_info=True)
                     continue
 
                 if isinstance(message, JsonRpcResponseSuccess):
@@ -533,8 +550,6 @@ class AhpClient:
                 elif isinstance(message, JsonRpcRequest):
                     await self._handle_host_request(message)
         finally:
-            # Don't leave any in-flight caller awaiting forever if the
-            # transport went away mid-request.
             for future in self._pending_requests.values():
                 if not future.done():
                     future.set_exception(
@@ -554,8 +569,6 @@ class AhpClient:
     def _handle_notification(self, message: JsonRpcNotification) -> None:
         if message.method == "action":
             self._handle_action_notification(message.params or {})
-        # Other notification methods (root/sessionAdded, auth/required,
-        # otlp/*, ...) are out of scope for this pass — see SPEC.md.
 
     def _handle_action_notification(self, params: dict[str, Any]) -> None:
         notification = ActionNotification.model_validate(params)
@@ -564,21 +577,16 @@ class AhpClient:
 
         if (
             origin is not None
-            and self._client_id is not None
             and origin.client_id == self._client_id
             and origin.client_seq in self._own_pending_client_seqs
         ):
-            # This is the host echoing back a mutation we already applied
-            # optimistically in dispatch_action(). Don't re-apply it — just
-            # advance the last-seen server sequence for the channel.
+            # Echo of our own write-ahead action; skip re-applying.
             self._own_pending_client_seqs.discard(origin.client_seq)
             self._last_seen_server_seq[channel] = notification.server_seq
             return
 
         current = self._channel_states.get(channel)
         if current is None:
-            # Not subscribed to this channel (or haven't initialized it) —
-            # nothing local to reconcile against.
             return
 
         _state_model, reducer = _channel_binding(channel)
@@ -587,22 +595,17 @@ class AhpClient:
         self._last_seen_server_seq[channel] = notification.server_seq
 
     async def _handle_host_request(self, message: JsonRpcRequest) -> None:
-        """Handle a host-initiated JSON-RPC *request* (as opposed to a
-        response or notification) — currently the ``resource*`` family, the
-        symmetric direction where the host calls back into this client.
-
-        Always replies with either a success or an error response; never lets
-        an exception escape into the reader loop, since a single misbehaving
-        provider call must not take down the whole connection.
-        """
+        """Handle host-initiated resource* requests (symmetric direction)."""
         try:
             result = await self._dispatch_host_request(message.method, message.params or {})
         except AhpClientError as exc:
+            _log.warning("ahp: host request %r not handled: %s", message.method, exc)
             await self._send_host_error_response(
                 message.id, code=JsonRpcErrorCode.METHOD_NOT_FOUND, message=str(exc)
             )
             return
-        except Exception as exc:  # noqa: BLE001 - a provider's own bug must not kill the loop
+        except Exception as exc:  # noqa: BLE001
+            _log.error("ahp: error handling host request %r", message.method, exc_info=True)
             await self._send_host_error_response(
                 message.id, code=JsonRpcErrorCode.INTERNAL_ERROR, message=str(exc)
             )
@@ -612,29 +615,23 @@ class AhpClient:
     async def _dispatch_host_request(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
         if self._resource_provider is None:
             raise AhpClientError(
-                f"received host-initiated {method!r} but no resource provider "
-                f"is registered (see AhpClient.register_resource_provider)"
+                f"received host-initiated {method!r} but no resource provider is registered"
             )
 
         if method == "resourceRead":
-            read_params = ResourceReadParams.model_validate(params)
-            read_result = await self._resource_provider.read(read_params.uri)
-            return read_result.model_dump(by_alias=True)
+            p = ResourceReadParams.model_validate(params)
+            res = await self._resource_provider.read(p.uri)
+            return res.model_dump(by_alias=True)
 
         if method == "resourceWrite":
-            write_params = ResourceWriteParams.model_validate(params)
-            await self._resource_provider.write(write_params.uri, write_params.data)
+            p = ResourceWriteParams.model_validate(params)
+            await self._resource_provider.write(p.uri, p.data, p.encoding)
             return ResourceWriteResult().model_dump(by_alias=True)
 
         if method == "resourceList":
-            list_params = ResourceListParams.model_validate(params)
-            list_result = await self._resource_provider.list(list_params.uri)
-            return list_result.model_dump(by_alias=True)
-
-        if method == "resourceStat":
-            stat_params = ResourceStatParams.model_validate(params)
-            stat_result = await self._resource_provider.stat(stat_params.uri)
-            return stat_result.model_dump(by_alias=True)
+            p = ResourceListParams.model_validate(params)
+            res = await self._resource_provider.list(p.uri)
+            return res.model_dump(by_alias=True)
 
         raise AhpClientError(f"unsupported host-initiated method: {method!r}")
 
@@ -642,7 +639,9 @@ class AhpClient:
         response = JsonRpcResponseSuccess(id=request_id, result=result)
         await self._transport.send(response.model_dump_json(by_alias=True, exclude_none=True))
 
-    async def _send_host_error_response(self, request_id: Any, *, code: int, message: str) -> None:
+    async def _send_host_error_response(
+        self, request_id: Any, *, code: int, message: str
+    ) -> None:
         response = JsonRpcResponseError(
             id=request_id, error=JsonRpcErrorObject(code=code, message=message)
         )
