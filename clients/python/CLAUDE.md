@@ -5,18 +5,18 @@ Working memory for Claude sessions picking up work in this directory
 
 ## Read this first, in this order
 
-**[`STARTER.md`](./STARTER.md)** -- READ THIS FIRST and then follow steps as below.
+**[`STARTER.md`](./.scrolls/STARTER.md)** -- READ THIS FIRST and then follow steps as below.
 
-1. **[`HANDOFF.md`](./HANDOFF.md)** — **start here.** What's done, what's not,
+1. **[`HANDOFF.md`](./.scrolls/HANDOFF.md)** — **start here.** What's done, what's not,
    what was actually tested vs. only syntax-checked, known gotchas, and a
    recommended order of work. Written specifically for picking this project
    back up in a new session.
-2. **[`GAPANALYSIS.md`](./GAPANALYSIS.md)** — **read before touching
+2. **[`GAPANALYSIS.md`](./.scrolls/GAPANALYSIS.md)** — **read before touching
    `types/` or `reducers/`.** A field-by-field diff of this client's
    types/reducers against the canonical protocol source (repo-root
    `types/*.ts`, `schema/*.schema.json`). The current source of truth for
    what to fix next and in what order.
-3. > **[`GAPCONTEXT.md`](./GAPCONTEXT.md)** — **⚠ read this before deciding
+3. > **[`GAPCONTEXT.md`](./.scrolls/GAPCONTEXT.md)** — **⚠ read this before deciding
    > whether a gap in `GAPANALYSIS.md` is worth fixing.** For each remaining
    > gap, this file records *why* it matters: cross-client evidence (does
    > TypeScript/Go/Rust have it?), what breaks or degrades without it, and
@@ -24,14 +24,14 @@ Working memory for Claude sessions picking up work in this directory
    > wrong; `GAPCONTEXT.md` tells you *why it's necessary*. When you see a
    > gap in `GAPANALYSIS.md`, check here first before writing a single line
    > of code — the context may change the priority or the approach.
-4. **[`SPEC.md`](./SPEC.md)** — the design plan and the full decision/changelog
+4. **[`SPEC.md`](./.scrolls/SPEC.md)** — the design plan and the full decision/changelog
    history (§7 open questions, §7a verification caveats, §8 phase-by-phase
    changelog). Update this as you go, the same way prior sessions did.
 5. **[`CHANGELOG.md`](./CHANGELOG.md)** — package-level changelog, Keep a
    Changelog format. This client releases independently on its own
    `python/vX.Y.Z` tags, matching the Rust/Go/TypeScript/Kotlin clients in
    this repo.
-6. **[`WISDOM.md`](./WISDOM.md)** — constraints, traps, ditches, and best
+6. **[`WISDOM.md`](./.scrolls/WISDOM.md)** — constraints, traps, ditches, and best
    practices specific to this package, plus the Red/Green TDD conventions.
    Read before writing new code, not just before debugging.
 
@@ -60,9 +60,9 @@ pytest -v
 
 As of 2026-07-07 the full suite is **257/257 passing** (`uv run pytest -v`) —
 `ahp.client`, `ahp.hosts`, `ahp.types`, `ahp.reducers`, and `ahp.transport`
-are all executed. See `HANDOFF.md`'s "Test coverage" section for detail.
+are all executed. See `.scrolls/HANDOFF.md`'s "Test coverage" section for detail.
 **Green here means the code matches its own tests, not that it matches the
-protocol** — see `GAPANALYSIS.md` (what's wrong) and `GAPCONTEXT.md` (why
+protocol** — see `.scrolls/GAPANALYSIS.md` (what's wrong) and `.scrolls/GAPCONTEXT.md` (why
 each remaining gap matters).
 
 ## Conventions in this package

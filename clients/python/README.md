@@ -6,7 +6,7 @@ Python client for the [Agent Host Protocol](https://microsoft.github.io/agent-ho
 > `client`, and `hosts` are all implemented via Red/Green TDD. **`ahp.client`
 > and `ahp.hosts` have never actually been run** (no network to install
 > pydantic in the sandbox this was built in) — run `pytest` before relying on
-> them. See [`SPEC.md`](./SPEC.md) §7a and `CHANGELOG.md` for exactly what's
+> them. See [`SPEC.md`](./.scrolls/SPEC.md) §7a and `CHANGELOG.md` for exactly what's
 > verified vs. not.
 
 ## What's here
@@ -30,7 +30,7 @@ src/ahp/
 └── hosts.py                # MultiHostClient: fan-out registry over N AhpClient instances
 ```
 
-Not yet implemented: `unsubscribe()`. See `SPEC.md` §6 for the full build order
+Not yet implemented: `unsubscribe()`. See `.scrolls/SPEC.md` §6 for the full build order
 and what's verified at each layer.
 
 ## Install (once published)
@@ -80,7 +80,7 @@ pytest -v
 
 **If you run nothing else, run this first.** `ahp.types`, `ahp.reducers`, and
 `ahp.transport` were verified for real during development; `ahp.client` and
-`ahp.hosts` were only syntax-checked (`py_compile`) — see `SPEC.md` §7a.
+`ahp.hosts` were only syntax-checked (`py_compile`) — see `.scrolls/SPEC.md` §7a.
 
 ## Occasoanlly Running PyTest Coverage
 
@@ -132,7 +132,7 @@ async with MultiHostClient.single(client) as multi:
 - Every field set here is a **provisional first pass** based on the public
   specification pages and README, not a line-by-line port of the generated
   Rust/Go/TypeScript types. Expect corrections once cross-checked against
-  `schema/*.schema.json` upstream — see `SPEC.md` §7 (open questions).
+  `schema/*.schema.json` upstream — see `.scrolls/SPEC.md` §7 (open questions).
 
 ## License
 

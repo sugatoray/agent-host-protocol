@@ -189,6 +189,6 @@ TDD'd; the transport layer was *actually executed* in-sandbox (24/24 passing).
 Everything in `ahp.client` and `ahp.hosts` is syntax-checked only
 (`py_compile`) — no network access to install `pydantic` in the sandbox this
 was built in. **Run `pytest` for real before relying on `AhpClient` or
-`MultiHostClient`.** See `SPEC.md` §7a for details.
+`MultiHostClient`.** See `.scrolls/SPEC.md` §7a for details.
 
-Not yet implemented: `unsubscribe()`. See `SPEC.md` for the phased plan.
+Not yet implemented: `unsubscribe()`. See `.scrolls/SPEC.md` for the phased plan.

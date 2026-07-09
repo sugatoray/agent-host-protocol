@@ -1,6 +1,6 @@
 ---
 name: review-python-vs-typescript
-description: Use when asked to review the Python AHP client implementation, compare it against a reference client (TypeScript/Rust/Go), or generate a code_review_*.md artifact in clients/python/reviews/. Triggers on phrases like "run a code review", "compare python to typescript", or a user supplying a reference_gitsha with REVIEW.md.
+description: Use when asked to review the Python AHP client implementation, compare it against a reference client (TypeScript/Rust/Go), or generate a code_review_*.md artifact in clients/python/reviews/. Triggers on phrases like "run a code review", "compare python to typescript", or a user supplying a reference_gitsha with .scrolls/REVIEW.md.
 ---
 
 # Python Client Code Review
@@ -11,7 +11,7 @@ Structured parity review of `clients/python` against a reference AHP client, pro
 
 ## Reference Client Priority
 
-TypeScript → Rust → Go (first available; TypeScript is the canonical reference per `REVIEW.md`)
+TypeScript → Rust → Go (first available; TypeScript is the canonical reference per `.scrolls/REVIEW.md`)
 
 ## Step-by-Step
 
