@@ -1,0 +1,909 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>What Is Agent Host Protocol? — AHP</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;0,9..144,700;0,9..144,900;1,9..144,300;1,9..144,700&family=IBM+Plex+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    /* ── DESIGN TOKENS ──────────────────────────────────────────────────────── */
+    :root {
+      --bg:            oklch(0.10 0.018 252);
+      --surface:       oklch(0.14 0.018 252);
+      --surface-2:     oklch(0.18 0.016 252);
+      --surface-code:  oklch(0.115 0.020 252);
+      --ink:           oklch(0.91 0.006 252);
+      --ink-2:         oklch(0.70 0.011 252);
+      --ink-3:         oklch(0.45 0.012 252);
+      --accent:        oklch(0.74 0.155 183);
+      --accent-soft:   oklch(0.58 0.11  183);
+      --accent-bg:     oklch(0.74 0.155 183 / 0.09);
+      --accent-border: oklch(0.74 0.155 183 / 0.28);
+      --accent-glow:   oklch(0.74 0.155 183 / 0.22);
+      --border:        oklch(0.21 0.015 252);
+      --border-2:      oklch(0.28 0.015 252);
+      --font-serif:    'Fraunces', Georgia, serif;
+      --font-sans:     'IBM Plex Sans', system-ui, sans-serif;
+      --font-mono:     'IBM Plex Mono', 'Courier New', monospace;
+      --r-sm:  5px;
+      --r-md:  9px;
+      --r-lg: 14px;
+    }
+
+    /* ── RESET ──────────────────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
+
+    /* ── BASE ───────────────────────────────────────────────────────────────── */
+    body {
+      background-color: var(--bg);
+      color: var(--ink);
+      font-family: var(--font-sans);
+      font-size: 1.0625rem;
+      line-height: 1.72;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      overflow-x: hidden;
+    }
+
+    /* ── LAYOUT GRID ────────────────────────────────────────────────────────── */
+    .outer {
+      display: grid;
+      grid-template-columns: 1fr min(740px, 100% - 3rem) 1fr;
+    }
+    .outer > * { grid-column: 2; }
+    .full-bleed { grid-column: 1 / -1; }
+
+    /* ── TOPBAR ─────────────────────────────────────────────────────────────── */
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.875rem 1.5rem;
+      background: oklch(0.10 0.018 252 / 0.88);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .topbar-logo {
+      display: flex;
+      align-items: center;
+      gap: 0.625rem;
+      text-decoration: none;
+    }
+
+    .ahp-mark {
+      display: grid;
+      place-items: center;
+      width: 30px;
+      height: 30px;
+      border: 1.5px solid var(--accent);
+      border-radius: 7px;
+      font-family: var(--font-mono);
+      font-size: 0.65rem;
+      font-weight: 500;
+      color: var(--accent);
+      letter-spacing: 0.03em;
+      flex-shrink: 0;
+    }
+
+    .logo-text {
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      color: var(--ink-2);
+      letter-spacing: 0.02em;
+    }
+
+    .topbar-nav {
+      display: flex;
+      gap: 2rem;
+      list-style: none;
+    }
+
+    .topbar-nav a {
+      font-size: 0.8rem;
+      color: var(--ink-3);
+      text-decoration: none;
+      letter-spacing: 0.01em;
+      transition: color 0.18s;
+    }
+    .topbar-nav a:hover { color: var(--ink); }
+
+    /* ── HERO ───────────────────────────────────────────────────────────────── */
+    .hero {
+      position: relative;
+      padding: clamp(4.5rem, 9vh, 7rem) 1.5rem clamp(3.5rem, 7vh, 5.5rem);
+      overflow: hidden;
+    }
+
+    .hero-atmosphere {
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 75% 90% at 50% -5%, var(--accent-glow) 0%, transparent 62%),
+        radial-gradient(ellipse 45% 55% at 85% 95%, oklch(0.42 0.10 252 / 0.07) 0%, transparent 55%);
+      pointer-events: none;
+    }
+
+    .hero-inner {
+      max-width: 740px;
+      margin: 0 auto;
+      position: relative;
+    }
+
+    .proto-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: var(--accent);
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      margin-bottom: 1.75rem;
+      animation: riseIn 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+    }
+    .proto-tag::before {
+      content: '';
+      display: block;
+      width: 20px;
+      height: 1.5px;
+      background: var(--accent);
+    }
+
+    h1 {
+      font-family: var(--font-serif);
+      font-size: clamp(2.75rem, 5.8vw, 5.2rem);
+      font-weight: 700;
+      line-height: 1.06;
+      letter-spacing: -0.025em;
+      font-optical-sizing: auto;
+      color: var(--ink);
+      text-wrap: balance;
+      margin-bottom: 1.5rem;
+      animation: riseIn 0.6s cubic-bezier(0.22, 1, 0.36, 1) 0.08s both;
+    }
+
+    .hero-lead {
+      font-size: clamp(1rem, 2.1vw, 1.2rem);
+      color: var(--ink-2);
+      font-weight: 300;
+      max-width: 54ch;
+      line-height: 1.65;
+      margin-bottom: 2.25rem;
+      animation: riseIn 0.6s cubic-bezier(0.22, 1, 0.36, 1) 0.16s both;
+    }
+
+    .hero-callout {
+      background: var(--accent-bg);
+      border: 1px solid var(--accent-border);
+      border-radius: var(--r-md);
+      padding: 1.125rem 1.5rem;
+      font-family: var(--font-serif);
+      font-style: italic;
+      font-size: 1.1rem;
+      color: oklch(0.91 0.05 183);
+      line-height: 1.58;
+      max-width: 57ch;
+      animation: riseIn 0.6s cubic-bezier(0.22, 1, 0.36, 1) 0.24s both;
+    }
+
+    /* ── MAIN CONTENT ───────────────────────────────────────────────────────── */
+    main { padding-bottom: 6rem; }
+
+    .section {
+      padding: 3.25rem 0;
+      border-top: 1px solid var(--border);
+    }
+    .section:first-child { border-top: none; padding-top: 2.5rem; }
+
+    h2 {
+      font-family: var(--font-serif);
+      font-size: clamp(1.5rem, 3.2vw, 2.1rem);
+      font-weight: 700;
+      line-height: 1.15;
+      letter-spacing: -0.02em;
+      font-optical-sizing: auto;
+      color: var(--ink);
+      text-wrap: balance;
+      margin-bottom: 1.125rem;
+    }
+
+    p {
+      color: var(--ink-2);
+      max-width: 67ch;
+      margin-bottom: 0.875rem;
+      line-height: 1.76;
+    }
+    p:last-child { margin-bottom: 0; }
+    strong { color: var(--ink); font-weight: 600; }
+    em { font-style: italic; }
+
+    /* ── INLINE CODE ────────────────────────────────────────────────────────── */
+    :not(pre) > code {
+      font-family: var(--font-mono);
+      font-size: 0.85em;
+      color: var(--accent);
+      background: var(--accent-bg);
+      padding: 0.12em 0.36em;
+      border-radius: 4px;
+    }
+
+    /* ── CODE BLOCKS ────────────────────────────────────────────────────────── */
+    .codeblock {
+      position: relative;
+      margin: 1.375rem 0;
+    }
+
+    .codeblock-lang {
+      position: absolute;
+      top: 0.75rem;
+      right: 1rem;
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      color: var(--ink-3);
+      letter-spacing: 0.05em;
+      pointer-events: none;
+      user-select: none;
+    }
+
+    pre {
+      background: var(--surface-code);
+      border: 1px solid var(--border);
+      border-radius: var(--r-md);
+      padding: 1.375rem 1.5rem;
+      overflow-x: auto;
+      font-family: var(--font-mono);
+      font-size: 0.875rem;
+      line-height: 1.68;
+    }
+    pre code {
+      color: oklch(0.81 0.04 200);
+      background: none;
+      padding: 0;
+      border-radius: 0;
+      font-size: inherit;
+    }
+
+    /* ASCII diagrams — subtly muted */
+    .diagram {
+      background: var(--surface-code);
+      border: 1px solid var(--border);
+      border-radius: var(--r-md);
+      padding: 1.375rem 1.5rem;
+      margin: 1.375rem 0;
+      overflow-x: auto;
+      font-family: var(--font-mono);
+      font-size: 0.84rem;
+      line-height: 1.6;
+      color: oklch(0.62 0.03 200);
+      white-space: pre;
+    }
+
+    /* ── CALLOUT ────────────────────────────────────────────────────────────── */
+    .callout {
+      background: var(--accent-bg);
+      border: 1px solid var(--accent-border);
+      border-radius: var(--r-md);
+      padding: 1.25rem 1.5rem;
+      margin: 1.375rem 0;
+      font-family: var(--font-serif);
+      font-style: italic;
+      font-size: 1.12rem;
+      color: oklch(0.88 0.045 183);
+      line-height: 1.6;
+    }
+
+    /* ── KEY CONCEPTS ───────────────────────────────────────────────────────── */
+    .concepts { display: flex; flex-direction: column; }
+
+    .concept {
+      display: grid;
+      grid-template-columns: 9.5rem 1fr;
+      gap: 1rem 2rem;
+      align-items: start;
+      padding: 2rem 0;
+      border-top: 1px solid var(--border);
+    }
+
+    .concept-tag {
+      font-family: var(--font-mono);
+      font-size: 0.71rem;
+      color: var(--accent-soft);
+      letter-spacing: 0.06em;
+      padding-top: 0.35rem;
+      line-height: 1.4;
+    }
+
+    .concept-body > * + * { margin-top: 0.75rem; }
+
+    .concept-name {
+      font-family: var(--font-serif);
+      font-size: clamp(1.1rem, 2.2vw, 1.35rem);
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      font-optical-sizing: auto;
+      color: var(--ink);
+      margin-bottom: 0;
+    }
+
+    .concept-body p { max-width: none; margin-bottom: 0; }
+    .concept-body pre,
+    .concept-body .codeblock { margin-top: 0.875rem; }
+
+    /* ── STATE EQUATION ─────────────────────────────────────────────────────── */
+    .equation {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: var(--r-lg);
+      padding: 1.125rem 1.5rem;
+      margin-top: 1rem;
+      font-family: var(--font-mono);
+      font-size: 0.9rem;
+    }
+
+    .eq-term {
+      background: var(--surface-code);
+      border: 1px solid var(--border-2);
+      border-radius: var(--r-sm);
+      padding: 0.3rem 0.8rem;
+      color: var(--ink);
+    }
+
+    .eq-op { color: var(--accent); font-weight: 500; }
+
+    /* ── PRIMITIVE TAGS ─────────────────────────────────────────────────────── */
+    .tag-cloud {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin: 1.375rem 0;
+    }
+
+    .prim-tag {
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      color: var(--ink-2);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--r-sm);
+      padding: 0.3rem 0.7rem;
+    }
+
+    /* ── CONTRACT TABLE ─────────────────────────────────────────────────────── */
+    .contract {
+      background: var(--surface-code);
+      border: 1px solid var(--border);
+      border-radius: var(--r-md);
+      overflow: hidden;
+      margin: 1.375rem 0;
+    }
+
+    .contract-row {
+      display: grid;
+      grid-template-columns: 10rem 1fr;
+      border-top: 1px solid var(--border);
+    }
+    .contract-row:first-child { border-top: none; }
+
+    .c-key {
+      padding: 0.65rem 1rem;
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      color: var(--accent-soft);
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      letter-spacing: 0.01em;
+    }
+
+    .c-val {
+      padding: 0.65rem 1rem;
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      color: var(--ink-2);
+      line-height: 1.5;
+    }
+
+    /* ── ORDERED LIST ───────────────────────────────────────────────────────── */
+    ol.steps {
+      list-style: decimal;
+      padding-left: 1.4rem;
+      color: var(--ink-2);
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+      margin-top: 1rem;
+    }
+    ol.steps li::marker { color: var(--accent-soft); font-family: var(--font-mono); font-size: 0.82em; }
+
+    /* ── FOOTER ─────────────────────────────────────────────────────────────── */
+    .site-footer {
+      padding: 2rem 1.5rem;
+      border-top: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+    }
+
+    .footer-brand {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
+
+    .footer-brand .ahp-mark { width: 24px; height: 24px; font-size: 0.6rem; }
+
+    .footer-name {
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      color: var(--ink-3);
+    }
+
+    .footer-meta {
+      font-size: 0.78rem;
+      color: var(--ink-3);
+      font-family: var(--font-mono);
+    }
+
+    /* ── SCROLL REVEAL ──────────────────────────────────────────────────────── */
+    .reveal {
+      opacity: 0;
+      transform: translateY(18px);
+      transition:
+        opacity  0.5s cubic-bezier(0.22, 1, 0.36, 1),
+        transform 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    .reveal.in { opacity: 1; transform: none; }
+
+    @keyframes riseIn {
+      from { opacity: 0; transform: translateY(14px); }
+      to   { opacity: 1; transform: none; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .reveal { opacity: 1; transform: none; transition: none; }
+      .proto-tag, h1, .hero-lead, .hero-callout { animation: none; }
+    }
+
+    /* ── RESPONSIVE ─────────────────────────────────────────────────────────── */
+    @media (max-width: 600px) {
+      .topbar-nav { display: none; }
+
+      .concept {
+        grid-template-columns: 1fr;
+        gap: 0.35rem;
+      }
+      .concept-tag { padding-top: 0; }
+
+      .contract-row { grid-template-columns: 1fr; }
+      .c-key { border-right: none; border-bottom: 1px solid var(--border); }
+
+      .equation { gap: 0.5rem; }
+    }
+
+    /* Selection */
+    ::selection {
+      background: oklch(0.74 0.155 183 / 0.28);
+      color: var(--ink);
+    }
+  </style>
+</head>
+<body>
+<div class="outer">
+
+  <!-- ══ TOPBAR ══════════════════════════════════════════════════════════════ -->
+  <header class="topbar full-bleed">
+    <a class="topbar-logo" href="#">
+      <span class="ahp-mark">AHP</span>
+      <span class="logo-text">Agent Host Protocol</span>
+    </a>
+    <nav aria-label="Page sections">
+      <ul class="topbar-nav">
+        <li><a href="#big-picture">Architecture</a></li>
+        <li><a href="#key-concepts">Concepts</a></li>
+        <li><a href="#python-example">Example</a></li>
+        <li><a href="#why-ahp">Why AHP</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <!-- ══ HERO ════════════════════════════════════════════════════════════════ -->
+  <section class="hero full-bleed" aria-label="Introduction">
+    <div class="hero-atmosphere" aria-hidden="true"></div>
+    <div class="hero-inner">
+      <p class="proto-tag">Open Protocol · Python SDK</p>
+      <h1>What Is Agent<br>Host Protocol?</h1>
+      <p class="hero-lead">
+        A shared language for apps that want to talk to an AI agent session —
+        keeping every connected client watching the same state, without getting
+        out of sync.
+      </p>
+      <p class="hero-callout">
+        AHP lets many clients watch and control the same AI agent session without
+        getting out of sync. Think of it like Google&nbsp;Docs, but for AI agent
+        sessions.
+      </p>
+    </div>
+  </section>
+
+  <!-- ══ MAIN ════════════════════════════════════════════════════════════════ -->
+  <main>
+
+    <!-- What is AHP -->
+    <section class="section reveal" id="what-is">
+      <h2>One session. Many clients. Zero drift.</h2>
+      <p>
+        Google Docs lets multiple people edit the same document simultaneously.
+        Everyone sees the same cursor, the same text, the same state — in real
+        time. <strong>AHP does the same for AI agent sessions.</strong>
+      </p>
+      <p>
+        A VS Code window, a web dashboard, a mobile app, and a CLI can all
+        observe — and act on — the exact same agent session. When one client
+        changes something, every other client finds out.
+      </p>
+      <p>
+        Without AHP, every agent UI would independently invent its own
+        representation for sessions, messages, tool calls, and errors. With AHP,
+        all clients share one contract.
+      </p>
+    </section>
+
+    <!-- Big Picture -->
+    <section class="section reveal" id="big-picture">
+      <h2>Big Picture</h2>
+      <p>
+        The <strong>server</strong> owns the real session state. <strong>Clients</strong>
+        connect to it and ask for things: show me this session, send this message,
+        tell me when something changes. The server replies with state and updates.
+      </p>
+      <div class="diagram">+-------------+        AHP messages        +----------------+
+| VS Code     | &lt;------------------------&gt; |                |
+| Web app     |                            | AHP Server     |
+| CLI tool    | &lt;------------------------&gt; |                |
+| Mobile app  |                            | Agent Sessions |
++-------------+                            +----------------+</div>
+    </section>
+
+    <!-- Main Idea -->
+    <section class="section reveal" id="main-idea">
+      <h2>The Main Idea: One State, Many Views</h2>
+      <p>
+        When a client opens a session it gets a full snapshot. After that, it
+        receives only the small events that describe what changed. If one client
+        renames a session, every other client sees the new title immediately.
+      </p>
+      <div class="diagram">Client A                     AHP Server                    Client B
+--------                     ----------                    --------
+opens session  ------------> stores session state
+                             sends snapshot -------------> sees session
+
+renames session -----------> applies action
+                             broadcasts update ----------> sees new title</div>
+    </section>
+
+    <!-- Key Concepts -->
+    <section class="section reveal" id="key-concepts">
+      <h2>Key Concepts</h2>
+      <div class="concepts">
+
+        <div class="concept reveal">
+          <span class="concept-tag">HOST · SERVER</span>
+          <div class="concept-body">
+            <p class="concept-name">The Source of Truth</p>
+            <p>
+              The thing running the agent sessions. The AHP Server owns state and
+              arbitrates all changes — think of it as VS Code's agent host.
+            </p>
+            <div class="diagram">AHP Server = the source of truth</div>
+          </div>
+        </div>
+
+        <div class="concept reveal">
+          <span class="concept-tag">CLIENT</span>
+          <div class="concept-body">
+            <p class="concept-name">Any App That Connects</p>
+            <p>
+              VS Code UI, a terminal app, a web dashboard, a Python script. This
+              repository ships clients for Rust, TypeScript, Kotlin, Go, Swift,
+              and Python.
+            </p>
+          </div>
+        </div>
+
+        <div class="concept reveal">
+          <span class="concept-tag">SESSION</span>
+          <div class="concept-body">
+            <p class="concept-name">One Agent Conversation</p>
+            <p>One AI-agent conversation or workspace interaction. A session holds:</p>
+            <div class="diagram">Session
+|-- chat messages
+|-- terminal state
+|-- annotations
+|-- changesets
+`-- metadata like title/status</div>
+          </div>
+        </div>
+
+        <div class="concept reveal">
+          <span class="concept-tag">STATE</span>
+          <div class="concept-body">
+            <p class="concept-name">The Current Shape</p>
+            <p>Everything you need to render the UI — the full, live picture of a session.</p>
+            <div class="codeblock">
+              <span class="codeblock-lang">json</span>
+              <pre><code>{
+  "session": { "title": "Fix login bug", "status": "running" },
+  "chat": {
+    "messages": [
+      { "role": "user",      "text": "Please inspect the auth flow" },
+      { "role": "assistant", "text": "I'll look through the login code." }
+    ]
+  }
+}</code></pre>
+            </div>
+          </div>
+        </div>
+
+        <div class="concept reveal">
+          <span class="concept-tag">ACTION</span>
+          <div class="concept-body">
+            <p class="concept-name">A Small Change Event</p>
+            <p>
+              Instead of sending the whole state every time, clients and servers
+              exchange small, named actions. An action describes <em>what changed</em>,
+              not what the new state looks like.
+            </p>
+            <div class="codeblock">
+              <span class="codeblock-lang">json</span>
+              <pre><code>{ "type": "session/titleChanged", "title": "Fix login bug" }</code></pre>
+            </div>
+            <div class="equation">
+              <span class="eq-term">Old State</span>
+              <span class="eq-op">+</span>
+              <span class="eq-term">Action</span>
+              <span class="eq-op">=</span>
+              <span class="eq-term">New State</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="concept reveal">
+          <span class="concept-tag">REDUCER</span>
+          <div class="concept-body">
+            <p class="concept-name">The Rulebook</p>
+            <p>
+              A pure function that applies an action to state. Every client runs
+              the same reducer — so every client computes the same new state from
+              the same action, independently.
+            </p>
+            <div class="codeblock">
+              <span class="codeblock-lang">python</span>
+              <pre><code>def reduce_session(state, action):
+    if action.type == "session/titleChanged":
+        state.title = action.title
+    return state</code></pre>
+            </div>
+          </div>
+        </div>
+
+        <div class="concept reveal">
+          <span class="concept-tag">SNAPSHOT</span>
+          <div class="concept-body">
+            <p class="concept-name">Full State at Moment of Join</p>
+            <p>
+              When a client first connects, it receives a complete snapshot of the
+              session as it exists right now. After that, it only needs the smaller
+              incremental action updates.
+            </p>
+            <div class="diagram">On join:  "Here is the whole session as it exists right now."
+Later on: "Message added."
+          "Title changed."
+          "Terminal output appended."</div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- Write-Ahead Reconciliation -->
+    <section class="section reveal" id="write-ahead">
+      <h2>Write-Ahead Reconciliation</h2>
+      <p>
+        Sounds scarier than it is. The client may apply its own action
+        <em>immediately</em>, before the server confirms it — so the UI feels
+        instant, not laggy.
+      </p>
+      <div class="diagram">Client                         Server
+------                         ------
+User renames session
+Apply change locally
+UI updates instantly  -------> Server receives action
+                               Server accepts action
+                    &lt;--------- Server echoes action back
+Client says:
+"I already applied that one."</div>
+      <p>
+        When the server echoes the action back, the client recognizes it as
+        already applied and skips re-processing. If the server rejects the action,
+        the client rolls back. Either way, the network round-trip never blocks the UI.
+      </p>
+    </section>
+
+    <!-- Multi-Client Sync -->
+    <section class="section reveal" id="multi-client">
+      <h2>Multi-Client Sync</h2>
+      <p>
+        Two clients watching the same session automatically stay in step. When
+        Client A sends a message, the server updates state and broadcasts the change
+        — Client B sees it without polling.
+      </p>
+      <div class="diagram">+-------------+                 +-------------+
+| Client A    |                 | Client B    |
+| VS Code     |                 | Web UI      |
++-------------+                 +-------------+
+       \                              /
+        \                            /
+         v                          v
+              +----------------+
+              | AHP Server     |
+              | Session State  |
+              +----------------+
+
+Client A: "Run tests"  ---&gt;  Server updates  ---&gt;  Client B: sees "Run tests"</div>
+      <p>That is the heart of AHP.</p>
+    </section>
+
+    <!-- Python Example -->
+    <section class="section reveal" id="python-example">
+      <h2>Python Example</h2>
+      <p>Four steps, one async context manager:</p>
+      <div class="codeblock">
+        <span class="codeblock-lang">python</span>
+        <pre><code>from ahp import AhpClient
+from ahp.transport import WebSocketTransport
+
+async with AhpClient(
+    await WebSocketTransport.connect("ws://localhost:1234")
+) as client:
+    root_state    = await client.initialize()
+    session_state = await client.subscribe("session://example")
+
+    await client.dispatch_action(
+        "session://example",
+        {
+            "type":  "session/titleChanged",
+            "title": "Fix login bug",
+        },
+    )</code></pre>
+      </div>
+      <ol class="steps">
+        <li>Connect to an AHP server</li>
+        <li>Initialize the protocol handshake</li>
+        <li>Subscribe to one session — receive a snapshot</li>
+        <li>Dispatch an action that changes the session title</li>
+      </ol>
+    </section>
+
+    <!-- Why AHP Exists -->
+    <section class="section reveal" id="why-ahp">
+      <h2>Why AHP Exists</h2>
+      <p>
+        Without a protocol, every agent UI independently invents how to represent
+        the same primitives. Divergence, duplicate bugs, incompatible wire formats.
+      </p>
+      <div class="tag-cloud">
+        <span class="prim-tag">sessions</span>
+        <span class="prim-tag">messages</span>
+        <span class="prim-tag">tool calls</span>
+        <span class="prim-tag">terminal output</span>
+        <span class="prim-tag">file changes</span>
+        <span class="prim-tag">errors</span>
+        <span class="prim-tag">permissions</span>
+        <span class="prim-tag">auth prompts</span>
+      </div>
+      <p>AHP gives every client and server one shared contract:</p>
+      <div class="contract">
+        <div class="contract-row">
+          <span class="c-key">message shapes</span>
+          <span class="c-val">standardized wire format for every message type</span>
+        </div>
+        <div class="contract-row">
+          <span class="c-key">state shapes</span>
+          <span class="c-val">typed, versioned structures clients can rely on</span>
+        </div>
+        <div class="contract-row">
+          <span class="c-key">action names</span>
+          <span class="c-val">canonical event vocabulary (session/titleChanged, …)</span>
+        </div>
+        <div class="contract-row">
+          <span class="c-key">error formats</span>
+          <span class="c-val">consistent error envelopes across all transports</span>
+        </div>
+        <div class="contract-row">
+          <span class="c-key">update flow</span>
+          <span class="c-val">snapshot → incremental actions → reconciliation</span>
+        </div>
+        <div class="contract-row">
+          <span class="c-key">versioning</span>
+          <span class="c-val">protocol negotiation so old clients don't break</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Analogy -->
+    <section class="section reveal" id="analogy">
+      <h2>A Restaurant Ticket System</h2>
+      <p>
+        The kitchen system is the source of truth. The customer app and the waiter
+        display both read from it. Anyone can update an order, and everyone sees the
+        change — because they share one protocol.
+      </p>
+      <div class="diagram">Customer app       Kitchen system       Waiter display
+-----------        --------------       --------------
+orders food  --->  stores order   --->  sees update
+changes item --->  updates order  --->  sees change
+
+For AHP:
+
+Client app         AHP server           Other clients
+----------         ----------           -------------
+sends action --->  updates state  --->  receive update</div>
+    </section>
+
+    <!-- One-Sentence Summary -->
+    <section class="section reveal" id="summary">
+      <h2>One Sentence</h2>
+      <p class="callout">
+        Agent Host Protocol is a standard way for AI-agent clients and servers
+        to share session state, send actions, and keep multiple views of the
+        same agent session synchronized.
+      </p>
+    </section>
+
+  </main>
+
+  <!-- ══ FOOTER ══════════════════════════════════════════════════════════════ -->
+  <footer class="site-footer full-bleed">
+    <div class="footer-brand">
+      <span class="ahp-mark">AHP</span>
+      <span class="footer-name">Agent Host Protocol</span>
+    </div>
+    <span class="footer-meta">clients/python · Python SDK</span>
+  </footer>
+
+</div>
+
+<script>
+  // Scroll reveal via IntersectionObserver
+  const io = new IntersectionObserver(
+    entries => entries.forEach(e => {
+      if (e.isIntersecting) {
+        // stagger sibling concepts
+        const delay = e.target.closest('.concepts')
+          ? [...e.target.parentElement.children].indexOf(e.target) * 65
+          : 0;
+        e.target.style.transitionDelay = delay + 'ms';
+        e.target.classList.add('in');
+        io.unobserve(e.target);
+      }
+    }),
+    { threshold: 0.07, rootMargin: '0px 0px -36px 0px' }
+  );
+
+  document.querySelectorAll('.reveal').forEach(el => io.observe(el));
+</script>
+</body>
+</html>
